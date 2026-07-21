@@ -3,8 +3,8 @@
 Next.js App Router SPA — one shell + client-side master view router.
 
 ## Master views
-1. **Auth** — Login · Register · Profile (live against Go JWT API)
-2. **Simulator** — stub (web-llm + Gemma next)
+1. **Auth** — Login / Register (only when logged out)
+2. **Simulator** — Model loader · Review form · Classification result (`@mlc-ai/web-llm` + Gemma)
 3. **Dashboard** — stub (trust monitoring next)
 
 ## Run
@@ -22,5 +22,6 @@ Open http://localhost:3000
 
 ## Notes
 - Access JWT stays in memory; refresh token in `sessionStorage` (rotates on use).
-- LLM stays 100% in-browser later via `@mlc-ai/web-llm` (`gemma-2-2b-it-q4f16_1-MLC`).
+- LLM runs 100% in-browser via `@mlc-ai/web-llm` (`gemma-2-2b-it-q4f16_1-MLC`). Backend never calls a model.
+- First model load ~1.5 GB (cached). Needs WebGPU (Chrome/Edge 113+).
 - English-only UI, neo-brutalist tokens from the product brief.

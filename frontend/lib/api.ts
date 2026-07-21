@@ -119,3 +119,93 @@ export const authApi = {
     });
   },
 };
+
+export type ClassificationRunPayload = {
+  consistency: { label: string; confidence: number; reason: string };
+  authenticity: { label: string; confidence: number; reason: string };
+  experience: { label: string; confidence: number; reason: string };
+  usefulness: { label: string; confidence: number; reason: string };
+};
+
+export type ReviewDetail = {
+  review: {
+    id: string;
+    user_id: string;
+    game_name: string;
+    stars: number;
+    review_text: string;
+    trust_score: number;
+    grade: string;
+    needs_review: boolean;
+    latency_ms: number;
+    created_at: string;
+  };
+  runs: Array<{ id: string; review_id: string; run_index: number; payload: ClassificationRunPayload }>;
+  breakdown: Array<{
+    id: string;
+    review_id: string;
+    dimension: string;
+    final_label: string;
+    agreement: number;
+    avg_confidence: number;
+    dim_score: number;
+  }>;
+  composite: number;
+  penalty: number;
+};
+
+export type ReviewSummary = {
+  id: string;
+  user_id: string;
+  game_name: string;
+  stars: number;
+  review_text: string;
+  trust_score: number;
+  grade: string;
+  needs_review: boolean;
+  latency_ms: number;
+  created_at: string;
+};
+
+export type ReviewListResponse = {
+  items: ReviewSummary[];
+  total: number;
+  limit: number;
+  offset: number;
+};
+
+export const reviewsApi = {
+  create(
+    accessToken: string,
+    body: {
+      game_name: string;
+      stars: number;
+      review_text: string;
+      latency_ms: number;
+      runs: ClassificationRunPayload[];
+    },
+  ) {
+    return apiRequest<ReviewDetail>("/reviews", {
+      method: "POST",
+      accessToken,
+      body,
+    });
+  },
+  list(accessToken: string, query?: { limit?: number; offset?: number; needs_review?: boolean }) {
+    const params = new URLSearchParams();
+    if (query?.limit != null) params.set("limit", String(query.limit));
+    if (query?.offset != null) params.set("offset", String(query.offset));
+    if (query?.needs_review != null) params.set("needs_review", String(query.needs_review));
+    const qs = params.toString();
+    return apiRequest<ReviewListResponse>(`/reviews${qs ? `?${qs}` : ""}`, { accessToken });
+  },
+  get(accessToken: string, id: string) {
+    return apiRequest<ReviewDetail>(`/reviews/${id}`, { accessToken });
+  },
+  remove(accessToken: string, id: string) {
+    return apiRequest<{ deleted: boolean }>(`/reviews/${id}`, {
+      method: "DELETE",
+      accessToken,
+    });
+  },
+};

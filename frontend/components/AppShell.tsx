@@ -53,8 +53,8 @@ export function AppShell({
 
         {authenticated ? (
           <div className="header-account">
-            {userLabel ? <div className="user-chip">{userLabel}</div> : null}
-            <button type="button" className="btn secondary" onClick={onSignOut}>
+            {userLabel ? <span className="user-chip">{userLabel}</span> : null}
+            <button type="button" className="sign-out-link" onClick={onSignOut}>
               Sign out
             </button>
           </div>
