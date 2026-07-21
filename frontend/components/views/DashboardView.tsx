@@ -1,8 +1,10 @@
 "use client";
 
 import { Fragment, useCallback, useEffect, useState } from "react";
+import { DashboardOverview } from "@/components/DashboardOverview";
 import { GradeFeedbackForm } from "@/components/GradeFeedbackForm";
 import { GradeLegend } from "@/components/GradeLegend";
+import { PerGamePanel } from "@/components/PerGamePanel";
 import {
   ApiClientError,
   reviewsApi,
@@ -11,12 +13,13 @@ import {
 } from "@/lib/api";
 import { useAuth } from "@/lib/auth";
 import { explainGrade } from "@/lib/grades";
+import { summarizeLabelScores } from "@/lib/correctness";
 
-type Subview = "classifications" | "grades";
+type Subview = "overview" | "classifications" | "per-game" | "grades";
 
 export function DashboardView() {
   const { accessToken } = useAuth();
-  const [subview, setSubview] = useState<Subview>("classifications");
+  const [subview, setSubview] = useState<Subview>("overview");
   const [items, setItems] = useState<ReviewSummary[]>([]);
   const [total, setTotal] = useState(0);
   const [loading, setLoading] = useState(true);
@@ -45,6 +48,7 @@ export function DashboardView() {
   }, [loadList]);
 
   async function openDetail(id: string) {
+    setSubview("classifications");
     if (!accessToken) return;
     if (selectedId === id) {
       setSelectedId(null);
@@ -85,17 +89,31 @@ export function DashboardView() {
     <div>
       <h1>Classifications</h1>
       <p className="muted">
-        Control how reviews were classified. Trust grade is a supporting statistic about how stable
-        those labels were.
+        Score whether labels are correct — that is the primary score. Trust is a secondary stability
+        statistic.
       </p>
 
       <div className="subnav" role="tablist" aria-label="Dashboard subviews">
+        <button
+          type="button"
+          className={subview === "overview" ? "active" : ""}
+          onClick={() => setSubview("overview")}
+        >
+          Overview
+        </button>
         <button
           type="button"
           className={subview === "classifications" ? "active" : ""}
           onClick={() => setSubview("classifications")}
         >
           Classifications
+        </button>
+        <button
+          type="button"
+          className={subview === "per-game" ? "active" : ""}
+          onClick={() => setSubview("per-game")}
+        >
+          Per-game
         </button>
         <button
           type="button"
@@ -107,6 +125,12 @@ export function DashboardView() {
       </div>
 
       {error ? <div className="error-box">{error}</div> : null}
+
+      {subview === "overview" && (
+        <DashboardOverview recent={items} onOpenReview={(id) => void openDetail(id)} />
+      )}
+
+      {subview === "per-game" && <PerGamePanel />}
 
       {subview === "grades" && (
         <div className="panel">
@@ -145,11 +169,11 @@ export function DashboardView() {
                   <tr>
                     <th>Game</th>
                     <th>Review</th>
-                    <th>Stars</th>
+                    <th>Your rating</th>
+                    <th>Correctness</th>
                     <th>Trust</th>
                     <th>Grade</th>
                     <th>Flag</th>
-                    <th>Your rating</th>
                     <th>When</th>
                     <th></th>
                   </tr>
@@ -169,6 +193,18 @@ export function DashboardView() {
                         </td>
                         <td className="review-snip">{snip(r.review_text)}</td>
                         <td className="mono">{r.stars}/10</td>
+                        <td className="mono">
+                          {r.feedback ? (
+                            <span className="feedback-chip" title="Human label correctness">
+                              {r.correctness_label || summarizeLabelScores(r.feedback)}
+                              {r.correctness_score != null
+                                ? ` · ${r.correctness_score.toFixed(0)}`
+                                : ""}
+                            </span>
+                          ) : (
+                            <span className="muted">Unscored</span>
+                          )}
+                        </td>
                         <td className="mono muted">{r.trust_score.toFixed(1)}</td>
                         <td>
                           <span
@@ -179,15 +215,6 @@ export function DashboardView() {
                           </span>
                         </td>
                         <td>{r.needs_review ? <span className="flag-yes">Review</span> : "—"}</td>
-                        <td className="mono muted">
-                          {r.feedback ? (
-                            <span className="feedback-chip" title="Your label scores">
-                              {summarizeLabelScores(r.feedback)}
-                            </span>
-                          ) : (
-                            "—"
-                          )}
-                        </td>
                         <td className="mono muted">{new Date(r.created_at).toLocaleString()}</td>
                         <td>
                           <button
@@ -237,15 +264,30 @@ export function DashboardView() {
                                     detail.breakdown.map((b) => [b.dimension, b.final_label]),
                                   )}
                                   initial={detail.review.feedback}
-                                  onSaved={(fb) => {
+                                  onSaved={(review) => {
                                     setDetail((prev) =>
                                       prev
-                                        ? { ...prev, review: { ...prev.review, feedback: fb } }
+                                        ? {
+                                            ...prev,
+                                            review: {
+                                              ...prev.review,
+                                              feedback: review.feedback,
+                                              correctness_score: review.correctness_score,
+                                              correctness_label: review.correctness_label,
+                                            },
+                                          }
                                         : prev,
                                     );
                                     setItems((prev) =>
                                       prev.map((it) =>
-                                        it.id === detail.review.id ? { ...it, feedback: fb } : it,
+                                        it.id === detail.review.id
+                                          ? {
+                                              ...it,
+                                              feedback: review.feedback,
+                                              correctness_score: review.correctness_score,
+                                              correctness_label: review.correctness_label,
+                                            }
+                                          : it,
                                       ),
                                     );
                                   }}
@@ -300,13 +342,4 @@ function snip(text: string, n = 72): string {
   const t = text.trim().replace(/\s+/g, " ");
   if (t.length <= n) return t;
   return `${t.slice(0, n)}…`;
-}
-
-function summarizeLabelScores(fb: NonNullable<ReviewSummary["feedback"]>): string {
-  const dims = ["consistency", "authenticity", "experience", "usefulness"] as const;
-  const ok = dims.filter((d) => fb[d].correct).length;
-  const wrong = dims.length - ok;
-  if (wrong === 0) return "4 correct";
-  if (ok === 0) return "4 wrong";
-  return `${ok} correct · ${wrong} wrong`;
 }

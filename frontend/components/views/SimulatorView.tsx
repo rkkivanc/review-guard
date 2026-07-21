@@ -380,9 +380,19 @@ export function SimulatorView() {
                 (saved.breakdown || []).map((b) => [b.dimension, b.final_label]),
               )}
               initial={saved.review.feedback}
-              onSaved={(fb) =>
+              onSaved={(review) =>
                 setSaved((prev) =>
-                  prev ? { ...prev, review: { ...prev.review, feedback: fb } } : prev,
+                  prev
+                    ? {
+                        ...prev,
+                        review: {
+                          ...prev.review,
+                          feedback: review.feedback,
+                          correctness_score: review.correctness_score,
+                          correctness_label: review.correctness_label,
+                        },
+                      }
+                    : prev,
                 )
               }
             />

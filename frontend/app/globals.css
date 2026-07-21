@@ -481,6 +481,193 @@ code,
   box-shadow: 2px 2px 0 var(--ink);
 }
 
+.signature-card {
+  grid-column: span 1;
+}
+
+.metric-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(160px, 1fr));
+  gap: 0.75rem;
+}
+
+.metric-card {
+  border: var(--border);
+  background: var(--white);
+  padding: 0.85rem 1rem;
+  box-shadow: var(--shadow);
+}
+
+.metric-card.metric-primary {
+  background: #faf8f4;
+  border-color: var(--ink);
+}
+
+.metric-value {
+  font-size: 1.75rem;
+  font-weight: 700;
+  margin-top: 0.25rem;
+}
+
+.avg-compare {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 1rem 1.5rem;
+  margin-top: 0.75rem;
+  padding: 1rem 1.1rem;
+  border: var(--border-thin);
+  background: var(--white);
+}
+
+.avg-compare.per-game-avg {
+  margin-top: 1rem;
+}
+
+.avg-col {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: 0.35rem 0.5rem;
+}
+
+.avg-label {
+  flex: 1 0 100%;
+  font-size: 0.8rem;
+  letter-spacing: 0.02em;
+  color: #5a564e;
+}
+
+.avg-num {
+  font-size: 1.65rem;
+  font-weight: 600;
+  color: var(--ink);
+}
+
+.avg-unit {
+  font-size: 0.85rem;
+}
+
+.avg-note {
+  grid-column: 1 / -1;
+  margin: 0;
+  font-size: 0.9rem;
+  line-height: 1.4;
+}
+
+.correctness-hero {
+  margin: 0.75rem 0 1rem;
+  padding: 0.85rem 1rem;
+  border: var(--border);
+  background: var(--white);
+  box-shadow: var(--shadow);
+}
+
+.correctness-hero-value {
+  font-size: 2.25rem;
+  font-weight: 700;
+  line-height: 1.1;
+  margin: 0.15rem 0;
+}
+
+.correctness-hero-max {
+  font-size: 1rem;
+  font-weight: 500;
+  opacity: 0.55;
+  margin-left: 0.15rem;
+}
+
+/* legacy signature classes kept soft if referenced */
+.signature-split {
+  display: flex;
+  align-items: baseline;
+  gap: 1.25rem;
+  margin: 0.5rem 0;
+}
+
+.raw-avg,
+.weighted-avg {
+  font-size: 1.5rem;
+  font-weight: 600;
+  color: var(--ink);
+  text-decoration: none;
+  text-shadow: none;
+  opacity: 1;
+}
+
+.signature-caption {
+  margin: 0.35rem 0 0;
+  font-weight: 400;
+  color: #5a564e;
+}
+
+.per-game-signature {
+  margin-top: 1rem;
+  padding: 1rem;
+  border: var(--border-thin);
+  background: var(--white);
+}
+
+.threshold-row {
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+  margin: 0.75rem 0;
+}
+
+.threshold-row input[type="range"] {
+  flex: 1;
+  accent-color: var(--flare);
+}
+
+.dist-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+  gap: 0.75rem;
+}
+
+.dist-card {
+  border: var(--border-thin);
+  padding: 0.75rem;
+  background: var(--paper);
+}
+
+.dist-bar-row {
+  display: grid;
+  grid-template-columns: 1fr 2fr auto;
+  gap: 0.4rem;
+  align-items: center;
+  margin-top: 0.35rem;
+  font-size: 0.8rem;
+}
+
+.dist-label {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.dist-track {
+  height: 0.85rem;
+  border: 2px solid var(--ink);
+  background: var(--white);
+}
+
+.dist-fill {
+  height: 100%;
+  background: var(--signal);
+}
+
+.activity-list {
+  list-style: none;
+  padding: 0;
+  margin: 0;
+}
+
+.activity-list li {
+  padding: 0.45rem 0;
+  border-bottom: var(--border-thin);
+}
+
 .feedback-chip {
   display: inline-block;
   border: var(--border-thin);
@@ -601,6 +788,12 @@ code,
   background: var(--white);
   padding: 0.85rem 1rem;
   margin: 1rem 0;
+}
+
+.stats-strip > summary {
+  cursor: pointer;
+  font-weight: 600;
+  font-family: var(--font-display);
 }
 
 .stats-strip h3 {

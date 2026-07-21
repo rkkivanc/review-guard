@@ -186,11 +186,15 @@ func (s *ReviewService) Analytics(ctx context.Context, userID string, threshold 
 		Threshold:     threshold,
 	}
 
-	var trustSum float64
+	var trustSum, corrSum float64
 	for _, r := range reviews {
 		trustSum += r.TrustScore
 		if r.NeedsReview {
 			out.FlaggedCount++
+		}
+		if r.CorrectnessScore != nil {
+			out.FeedbackScoredCount++
+			corrSum += *r.CorrectnessScore
 		}
 		out.GradeCounts[r.Grade]++
 		if r.TrustScore < threshold {
@@ -211,6 +215,9 @@ func (s *ReviewService) Analytics(ctx context.Context, userID string, threshold 
 	if len(reviews) > 0 {
 		out.AvgTrustScore = trustSum / float64(len(reviews))
 	}
+	if out.FeedbackScoredCount > 0 {
+		out.AvgCorrectnessScore = corrSum / float64(out.FeedbackScoredCount)
+	}
 	return out, nil
 }
 
@@ -228,12 +235,17 @@ func (s *ReviewService) GameAverage(ctx context.Context, userID, gameName string
 		return domain.GameAverage{}, domain.ErrNotFound
 	}
 	stars := make([]int, len(reviews))
-	trusts := make([]float64, len(reviews))
+	weights := make([]float64, len(reviews))
 	for i, r := range reviews {
 		stars[i] = r.Stars
-		trusts[i] = r.TrustScore
+		// Prefer human correctness weight; fall back to trust stability.
+		if r.CorrectnessScore != nil {
+			weights[i] = *r.CorrectnessScore
+		} else {
+			weights[i] = r.TrustScore
+		}
 	}
-	raw, weighted, inflation := scoring.GameAverages(stars, trusts)
+	raw, weighted, inflation := scoring.GameAverages(stars, weights)
 	return domain.GameAverage{
 		GameName:    reviews[0].GameName,
 		ReviewCount: len(reviews),
@@ -243,7 +255,8 @@ func (s *ReviewService) GameAverage(ctx context.Context, userID, gameName string
 	}, nil
 }
 
-// SubmitFeedback stores per-dimension label correctness (does not mutate trust_score).
+// SubmitFeedback stores per-dimension label correctness and updates correctness_score.
+// Does not mutate trust_score / grade (those stay stability stats).
 func (s *ReviewService) SubmitFeedback(ctx context.Context, userID, reviewID string, fb domain.ClassificationFeedback) (domain.Review, error) {
 	var err error
 	if fb.Consistency, err = normalizeJudgment(fb.Consistency, []string{"aligned", "mismatched"}); err != nil {

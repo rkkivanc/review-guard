@@ -6,8 +6,10 @@ import {
   reviewsApi,
   type ClassificationFeedback,
   type DimJudgment,
+  type ReviewSummary,
 } from "@/lib/api";
 import { useAuth } from "@/lib/auth";
+import { correctnessLabel, correctnessScore, summarizeLabelScores } from "@/lib/correctness";
 
 const LABEL_OPTIONS: Record<string, string[]> = {
   consistency: ["aligned", "mismatched"],
@@ -23,7 +25,7 @@ type Props = {
   /** Model majority labels keyed by dimension */
   modelLabels: Record<string, string>;
   initial?: ClassificationFeedback | null;
-  onSaved?: (feedback: ClassificationFeedback) => void;
+  onSaved?: (review: ReviewSummary) => void;
 };
 
 type Draft = Record<(typeof DIMS)[number], { correct: boolean | null; correctLabel: string }>;
@@ -50,6 +52,9 @@ export function GradeFeedbackForm({ reviewId, modelLabels, initial, onSaved }: P
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [saved, setSaved] = useState<ClassificationFeedback | null>(initial ?? null);
+  const [savedScore, setSavedScore] = useState<number | null>(
+    initial ? correctnessScore(initial) : null,
+  );
 
   const complete = useMemo(
     () => DIMS.every((dim) => draft[dim].correct !== null && (draft[dim].correct || draft[dim].correctLabel)),
@@ -73,7 +78,10 @@ export function GradeFeedbackForm({ reviewId, modelLabels, initial, onSaved }: P
       const fb = review.feedback;
       if (fb) {
         setSaved(fb);
-        onSaved?.(fb);
+        setSavedScore(
+          review.correctness_score != null ? review.correctness_score : correctnessScore(fb),
+        );
+        onSaved?.(review);
       }
     } catch (err) {
       setError(err instanceof ApiClientError ? err.message : "Could not save feedback.");
@@ -99,18 +107,23 @@ export function GradeFeedbackForm({ reviewId, modelLabels, initial, onSaved }: P
     <form className="feedback-panel" onSubmit={onSubmit}>
       <h3>Score classification correctness</h3>
       <p className="muted">
-        Mark whether each dimension label is right. Wrong labels (with your correction) teach later
-        Gemma runs. This does not change trust statistics.
+        Primary score: mark whether each dimension label is right. Corrections also teach later Gemma
+        runs. Trust stats stay separate.
       </p>
 
       {error ? <div className="error-box">{error}</div> : null}
-      {saved ? (
-        <p className="muted">
-          Saved.{" "}
-          {DIMS.filter((d) => saved[d] && !saved[d].correct).length
-            ? `${DIMS.filter((d) => !saved[d].correct).length} correction(s) recorded.`
-            : "All four labels marked correct."}
-        </p>
+
+      {saved && savedScore != null ? (
+        <div className="correctness-hero">
+          <div className="muted">Correctness score</div>
+          <div className="correctness-hero-value mono">
+            {savedScore.toFixed(0)}
+            <span className="correctness-hero-max">/100</span>
+          </div>
+          <div className="mono muted">
+            {correctnessLabel(saved)} · {summarizeLabelScores(saved)}
+          </div>
+        </div>
       ) : null}
 
       <div className="dim-score-grid">
@@ -190,7 +203,7 @@ export function GradeFeedbackForm({ reviewId, modelLabels, initial, onSaved }: P
       </div>
 
       <button className="btn secondary" type="submit" disabled={busy || !complete}>
-        {busy ? "Saving…" : saved ? "Update label scores" : "Save label scores"}
+        {busy ? "Saving…" : saved ? "Update correctness score" : "Save correctness score"}
       </button>
     </form>
   );

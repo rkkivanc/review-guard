@@ -154,6 +154,8 @@ export type ReviewSummary = {
   latency_ms: number;
   created_at: string;
   feedback?: ClassificationFeedback | null;
+  correctness_score?: number | null;
+  correctness_label?: string;
 };
 
 export type ReviewListResponse = {
@@ -188,6 +190,8 @@ export type ReviewDetail = {
     latency_ms: number;
     created_at: string;
     feedback?: ClassificationFeedback | null;
+    correctness_score?: number | null;
+    correctness_label?: string;
   };
   runs: Array<{ id: string; review_id: string; run_index: number; payload: ClassificationRunPayload }>;
   breakdown: Array<{
@@ -259,4 +263,37 @@ export const reviewsApi = {
       accessToken,
     });
   },
+  analytics(accessToken: string, threshold?: number) {
+    const qs =
+      threshold != null && threshold > 0 ? `?threshold=${encodeURIComponent(String(threshold))}` : "";
+    return apiRequest<Analytics>(`/reviews/analytics${qs}`, { accessToken });
+  },
+  games(accessToken: string) {
+    return apiRequest<{ games: string[] }>("/games", { accessToken });
+  },
+  gameAverage(accessToken: string, gameName: string) {
+    return apiRequest<GameAverage>(`/games/${encodeURIComponent(gameName)}/average`, {
+      accessToken,
+    });
+  },
+};
+
+export type Analytics = {
+  total_reviews: number;
+  flagged_count: number;
+  avg_trust_score: number;
+  feedback_scored_count: number;
+  avg_correctness_score: number;
+  grade_counts: Record<string, number>;
+  dimension_distribution: Record<string, Record<string, number>>;
+  threshold: number;
+  would_flag_at_threshold: number;
+};
+
+export type GameAverage = {
+  game_name: string;
+  review_count: number;
+  raw_avg: number;
+  weighted_avg: number;
+  inflation: number;
 };

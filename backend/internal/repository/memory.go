@@ -434,6 +434,9 @@ func (m *MemoryStore) UpsertGradeFeedback(ctx context.Context, userID, reviewID 
 	}
 	cp := fb
 	r.Feedback = &cp
+	score, label := domain.CorrectnessFromFeedback(cp)
+	r.CorrectnessScore = &score
+	r.CorrectnessLabel = label
 	m.reviewsByID[reviewID] = r
 	return r, nil
 }
