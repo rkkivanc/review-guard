@@ -7,6 +7,7 @@ import (
 	"net/http"
 	"os"
 	"os/signal"
+	"strings"
 	"syscall"
 	"time"
 
@@ -22,22 +23,32 @@ func main() {
 	slog.SetDefault(logger)
 
 	cfg := config.Load()
-	ephemeralJWT, err := cfg.EnsureJWTSecret()
+	jwtFromFile, err := cfg.EnsureJWTSecret()
 	if err != nil {
 		slog.Error("config error", "err", err)
 		os.Exit(1)
 	}
-	if ephemeralJWT {
-		slog.Warn("JWT_SECRET unset; generated ephemeral secret for memory-store local dev (sessions reset on restart)")
+	if jwtFromFile && strings.TrimSpace(os.Getenv("JWT_SECRET")) == "" {
+		slog.Info("JWT_SECRET unset; using persisted secret in data dir", "dir", cfg.DataDir)
 	}
 
 	var store repository.Store
 	if cfg.UsingMemoryStore() {
-		slog.Info("DATABASE_URL empty; using in-memory repository")
-		store = repository.NewMemoryStore()
+		ms, err := repository.OpenMemoryStore(cfg.DataDir)
+		if err != nil {
+			slog.Error("open memory store", "err", err)
+			os.Exit(1)
+		}
+		slog.Info("DATABASE_URL empty; using file-backed memory repository", "dir", cfg.DataDir)
+		store = ms
 	} else {
-		slog.Warn("DATABASE_URL set but Postgres repository not wired yet; using in-memory repository")
-		store = repository.NewMemoryStore()
+		slog.Warn("DATABASE_URL set but Postgres repository not wired yet; using file-backed memory repository")
+		ms, err := repository.OpenMemoryStore(cfg.DataDir)
+		if err != nil {
+			slog.Error("open memory store", "err", err)
+			os.Exit(1)
+		}
+		store = ms
 	}
 
 	tokens, err := auth.NewTokenManager(cfg.JWTSecret, cfg.AccessTokenTTL, cfg.RefreshTokenTTL)

@@ -11,8 +11,10 @@ import (
 )
 
 // MemoryStore is the local-dev fallback when DATABASE_URL is empty.
+// When opened via OpenMemoryStore, state is saved under dataDir/store.json.
 type MemoryStore struct {
 	mu            sync.RWMutex
+	dataDir       string
 	usersByID     map[string]domain.User
 	usersByEmail  map[string]string // email → id
 	refreshByID   map[string]domain.RefreshToken
@@ -38,6 +40,9 @@ func NewMemoryStore() *MemoryStore {
 
 // Name identifies the store implementation for health responses.
 func (m *MemoryStore) Name() string {
+	if m.dataDir != "" {
+		return "memory+file"
+	}
 	return "memory"
 }
 
@@ -65,6 +70,7 @@ func (m *MemoryStore) CreateUser(ctx context.Context, user domain.User) (domain.
 	user.Email = email
 	m.usersByID[user.ID] = user
 	m.usersByEmail[email] = user.ID
+	_ = m.persistLocked()
 	return user, nil
 }
 
@@ -120,6 +126,7 @@ func (m *MemoryStore) UpdateUser(ctx context.Context, user domain.User) (domain.
 	existing.Email = newEmail
 	existing.Name = user.Name
 	m.usersByID[user.ID] = existing
+	_ = m.persistLocked()
 	return existing, nil
 }
 
@@ -136,6 +143,7 @@ func (m *MemoryStore) UpdatePassword(ctx context.Context, userID, passwordHash s
 	}
 	u.PasswordHash = passwordHash
 	m.usersByID[userID] = u
+	_ = m.persistLocked()
 	return nil
 }
 
@@ -148,6 +156,7 @@ func (m *MemoryStore) CreateRefreshToken(ctx context.Context, token domain.Refre
 
 	m.refreshByID[token.ID] = token
 	m.refreshByHash[token.TokenHash] = token.ID
+	_ = m.persistLocked()
 	return token, nil
 }
 
@@ -180,6 +189,7 @@ func (m *MemoryStore) RevokeRefreshToken(ctx context.Context, id string, at time
 		t.RevokedAt = &at
 		m.refreshByID[id] = t
 	}
+	_ = m.persistLocked()
 	return nil
 }
 
@@ -200,6 +210,7 @@ func (m *MemoryStore) RevokeUserRefreshTokens(ctx context.Context, userID string
 			m.refreshByID[id] = t
 		}
 	}
+	_ = m.persistLocked()
 	return nil
 }
 
@@ -256,6 +267,7 @@ func (m *MemoryStore) CreateReview(ctx context.Context, review domain.Review, ru
 	cpBD := make([]domain.ScoreBreakdownRow, len(breakdown))
 	copy(cpBD, breakdown)
 	m.breakdowns[review.ID] = cpBD
+	_ = m.persistLocked()
 	return review, nil
 }
 
@@ -333,6 +345,7 @@ func (m *MemoryStore) DeleteReview(ctx context.Context, userID, reviewID string)
 	delete(m.reviewsByID, reviewID)
 	delete(m.classifications, reviewID)
 	delete(m.breakdowns, reviewID)
+	_ = m.persistLocked()
 	return nil
 }
 
@@ -386,6 +399,7 @@ func (m *MemoryStore) ReplaceScore(ctx context.Context, userID string, review do
 	cp := make([]domain.ScoreBreakdownRow, len(breakdown))
 	copy(cp, breakdown)
 	m.breakdowns[review.ID] = cp
+	_ = m.persistLocked()
 	return nil
 }
 
@@ -438,6 +452,7 @@ func (m *MemoryStore) UpsertGradeFeedback(ctx context.Context, userID, reviewID 
 	r.CorrectnessScore = &score
 	r.CorrectnessLabel = label
 	m.reviewsByID[reviewID] = r
+	_ = m.persistLocked()
 	return r, nil
 }
 

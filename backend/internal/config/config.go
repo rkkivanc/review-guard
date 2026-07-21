@@ -5,6 +5,7 @@ import (
 	"encoding/hex"
 	"fmt"
 	"os"
+	"path/filepath"
 	"strconv"
 	"strings"
 	"time"
@@ -14,6 +15,7 @@ import (
 type Config struct {
 	Port            string
 	DatabaseURL     string
+	DataDir         string
 	JWTSecret       string
 	CORSOrigins     []string
 	AccessTokenTTL  time.Duration
@@ -40,6 +42,7 @@ func Load() Config {
 	return Config{
 		Port:            envOr("PORT", "8080"),
 		DatabaseURL:     strings.TrimSpace(os.Getenv("DATABASE_URL")),
+		DataDir:         envOr("DATA_DIR", "data"),
 		JWTSecret:       os.Getenv("JWT_SECRET"),
 		CORSOrigins:     splitCSV(envOr("CORS_ORIGINS", "http://localhost:3000")),
 		AccessTokenTTL:  envDuration("ACCESS_TOKEN_TTL", 15*time.Minute),
@@ -63,20 +66,36 @@ func (c Config) UsingMemoryStore() bool {
 	return c.DatabaseURL == ""
 }
 
-// EnsureJWTSecret requires JWT_SECRET when Postgres is configured; for memory-store
-// local dev it generates an ephemeral secret (sessions die on restart).
-func (c *Config) EnsureJWTSecret() (ephemeral bool, err error) {
+// EnsureJWTSecret requires JWT_SECRET when Postgres is configured.
+// For file-backed memory mode it loads or creates dataDir/jwt.secret so restarts keep sessions.
+func (c *Config) EnsureJWTSecret() (fromFile bool, err error) {
 	if strings.TrimSpace(c.JWTSecret) != "" {
 		return false, nil
 	}
 	if !c.UsingMemoryStore() {
 		return false, fmt.Errorf("JWT_SECRET is required when DATABASE_URL is set")
 	}
+	if err := os.MkdirAll(c.DataDir, 0o755); err != nil {
+		return false, fmt.Errorf("create data dir: %w", err)
+	}
+	path := filepath.Join(c.DataDir, "jwt.secret")
+	if raw, err := os.ReadFile(path); err == nil {
+		sec := strings.TrimSpace(string(raw))
+		if sec != "" {
+			c.JWTSecret = sec
+			return true, nil
+		}
+	} else if !os.IsNotExist(err) {
+		return false, fmt.Errorf("read jwt secret: %w", err)
+	}
 	buf := make([]byte, 32)
 	if _, err := rand.Read(buf); err != nil {
 		return false, fmt.Errorf("generate jwt secret: %w", err)
 	}
 	c.JWTSecret = hex.EncodeToString(buf)
+	if err := os.WriteFile(path, []byte(c.JWTSecret+"\n"), 0o600); err != nil {
+		return false, fmt.Errorf("write jwt secret: %w", err)
+	}
 	return true, nil
 }
 

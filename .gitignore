@@ -4,6 +4,7 @@
 !.env.example
 # Go
 backend/bin/
+backend/data/
 *.exe
 *.test
 *.out

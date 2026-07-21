@@ -17,7 +17,7 @@ internal/config     → environment configuration
 go run ./cmd/server
 ```
 
-With empty `DATABASE_URL` the in-memory repository is used automatically.
+With empty `DATABASE_URL` the file-backed memory repository is used (`DATA_DIR`, default `data/`). Users, sessions, and reviews survive process restarts.
 
 Smoke endpoints:
 - `GET /health` · `GET /ready` · `GET /config` · `GET /version`
@@ -34,4 +34,4 @@ Reviews + decision scoring (§5 #14–21) — trust is **always recomputed serve
 
 Pure scoring logic lives in `internal/scoring` (unit-tested). Client-supplied trust is ignored.
 
-Set `JWT_SECRET` in production. Local memory mode generates an ephemeral secret if unset.
+Set `JWT_SECRET` in production. Local memory mode persists a secret under `DATA_DIR/jwt.secret` if unset.
