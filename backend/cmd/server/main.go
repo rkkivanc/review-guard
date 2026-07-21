@@ -49,13 +49,15 @@ func main() {
 	healthSvc := service.NewHealthService(cfg, store)
 	cfgSvc := service.NewConfigService(cfg)
 	authSvc := service.NewAuthService(store, tokens)
+	reviewSvc := service.NewReviewService(store, cfg)
 
 	router := httpapi.NewRouter(httpapi.Dependencies{
-		Config:  cfg,
-		Tokens:  tokens,
-		Health:  healthSvc,
-		CfgSvc:  cfgSvc,
-		AuthSvc: authSvc,
+		Config:    cfg,
+		Tokens:    tokens,
+		Health:    healthSvc,
+		CfgSvc:    cfgSvc,
+		AuthSvc:   authSvc,
+		ReviewSvc: reviewSvc,
 	})
 
 	srv := &http.Server{

@@ -1,0 +1,200 @@
+package httpapi
+
+import (
+	"net/http"
+	"strconv"
+	"strings"
+
+	"github.com/go-chi/chi/v5"
+
+	"github.com/masterfabric/review-guard/mf-backend/internal/domain"
+	"github.com/masterfabric/review-guard/mf-backend/internal/scoring"
+	"github.com/masterfabric/review-guard/mf-backend/internal/service"
+)
+
+// ReviewHandler serves review + scoring endpoints.
+type ReviewHandler struct {
+	svc *service.ReviewService
+}
+
+// NewReviewHandler constructs a ReviewHandler.
+func NewReviewHandler(svc *service.ReviewService) *ReviewHandler {
+	return &ReviewHandler{svc: svc}
+}
+
+type createReviewRequest struct {
+	GameName   string        `json:"game_name"`
+	Stars      int           `json:"stars"`
+	ReviewText string        `json:"review_text"`
+	LatencyMS  int           `json:"latency_ms"`
+	Runs       []scoring.Run `json:"runs"`
+}
+
+// Create handles POST /reviews.
+func (h *ReviewHandler) Create(w http.ResponseWriter, r *http.Request) {
+	userID, ok := UserIDFromContext(r.Context())
+	if !ok {
+		WriteErr(w, http.StatusUnauthorized, "unauthorized", "authentication required")
+		return
+	}
+	var req createReviewRequest
+	if err := decodeJSON(r, &req); err != nil {
+		WriteErr(w, http.StatusBadRequest, "bad_request", "invalid JSON body")
+		return
+	}
+	detail, err := h.svc.Create(r.Context(), userID, service.CreateReviewInput{
+		GameName:   req.GameName,
+		Stars:      req.Stars,
+		ReviewText: req.ReviewText,
+		LatencyMS:  req.LatencyMS,
+		Runs:       req.Runs,
+	})
+	if err != nil {
+		mapAuthErr(w, err)
+		return
+	}
+	WriteOK(w, http.StatusCreated, detail)
+}
+
+// List handles GET /reviews.
+func (h *ReviewHandler) List(w http.ResponseWriter, r *http.Request) {
+	userID, ok := UserIDFromContext(r.Context())
+	if !ok {
+		WriteErr(w, http.StatusUnauthorized, "unauthorized", "authentication required")
+		return
+	}
+	q := r.URL.Query()
+	filter := domain.ReviewListFilter{
+		Game:   q.Get("game"),
+		Grade:  q.Get("grade"),
+		Limit:  queryInt(q.Get("limit"), 50),
+		Offset: queryInt(q.Get("offset"), 0),
+	}
+	if v := q.Get("needs_review"); v != "" {
+		b := strings.EqualFold(v, "true") || v == "1"
+		filter.NeedsReview = &b
+	}
+	items, total, err := h.svc.List(r.Context(), userID, filter)
+	if err != nil {
+		mapAuthErr(w, err)
+		return
+	}
+	WriteOK(w, http.StatusOK, map[string]any{
+		"items":  items,
+		"total":  total,
+		"limit":  filter.Limit,
+		"offset": filter.Offset,
+	})
+}
+
+// Get handles GET /reviews/{id}.
+func (h *ReviewHandler) Get(w http.ResponseWriter, r *http.Request) {
+	userID, ok := UserIDFromContext(r.Context())
+	if !ok {
+		WriteErr(w, http.StatusUnauthorized, "unauthorized", "authentication required")
+		return
+	}
+	detail, err := h.svc.Get(r.Context(), userID, chi.URLParam(r, "id"))
+	if err != nil {
+		mapAuthErr(w, err)
+		return
+	}
+	WriteOK(w, http.StatusOK, detail)
+}
+
+// Delete handles DELETE /reviews/{id}.
+func (h *ReviewHandler) Delete(w http.ResponseWriter, r *http.Request) {
+	userID, ok := UserIDFromContext(r.Context())
+	if !ok {
+		WriteErr(w, http.StatusUnauthorized, "unauthorized", "authentication required")
+		return
+	}
+	if err := h.svc.Delete(r.Context(), userID, chi.URLParam(r, "id")); err != nil {
+		mapAuthErr(w, err)
+		return
+	}
+	WriteOK(w, http.StatusOK, map[string]bool{"deleted": true})
+}
+
+// Rescore handles POST /reviews/{id}/rescore.
+func (h *ReviewHandler) Rescore(w http.ResponseWriter, r *http.Request) {
+	userID, ok := UserIDFromContext(r.Context())
+	if !ok {
+		WriteErr(w, http.StatusUnauthorized, "unauthorized", "authentication required")
+		return
+	}
+	detail, err := h.svc.Rescore(r.Context(), userID, chi.URLParam(r, "id"))
+	if err != nil {
+		mapAuthErr(w, err)
+		return
+	}
+	WriteOK(w, http.StatusOK, detail)
+}
+
+// Score handles GET /reviews/{id}/score.
+func (h *ReviewHandler) Score(w http.ResponseWriter, r *http.Request) {
+	userID, ok := UserIDFromContext(r.Context())
+	if !ok {
+		WriteErr(w, http.StatusUnauthorized, "unauthorized", "authentication required")
+		return
+	}
+	score, err := h.svc.ScoreOnly(r.Context(), userID, chi.URLParam(r, "id"))
+	if err != nil {
+		mapAuthErr(w, err)
+		return
+	}
+	WriteOK(w, http.StatusOK, score)
+}
+
+// Analytics handles GET /reviews/analytics.
+func (h *ReviewHandler) Analytics(w http.ResponseWriter, r *http.Request) {
+	userID, ok := UserIDFromContext(r.Context())
+	if !ok {
+		WriteErr(w, http.StatusUnauthorized, "unauthorized", "authentication required")
+		return
+	}
+	threshold := queryFloat(r.URL.Query().Get("threshold"), 0)
+	data, err := h.svc.Analytics(r.Context(), userID, threshold)
+	if err != nil {
+		mapAuthErr(w, err)
+		return
+	}
+	WriteOK(w, http.StatusOK, data)
+}
+
+// GameAverage handles GET /games/{name}/average.
+func (h *ReviewHandler) GameAverage(w http.ResponseWriter, r *http.Request) {
+	userID, ok := UserIDFromContext(r.Context())
+	if !ok {
+		WriteErr(w, http.StatusUnauthorized, "unauthorized", "authentication required")
+		return
+	}
+	avg, err := h.svc.GameAverage(r.Context(), userID, chi.URLParam(r, "name"))
+	if err != nil {
+		mapAuthErr(w, err)
+		return
+	}
+	WriteOK(w, http.StatusOK, avg)
+}
+
+func queryInt(raw string, fallback int) int {
+	if raw == "" {
+		return fallback
+	}
+	n, err := strconv.Atoi(raw)
+	if err != nil {
+		return fallback
+	}
+	return n
+}
+
+func queryFloat(raw string, fallback float64) float64 {
+	if raw == "" {
+		return fallback
+	}
+	n, err := strconv.ParseFloat(raw, 64)
+	if err != nil {
+		return fallback
+	}
+	return n
+}

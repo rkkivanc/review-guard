@@ -26,6 +26,17 @@ type Store interface {
 	RevokeUserRefreshTokens(ctx context.Context, userID string, at time.Time, exceptID string) error
 	ListUserRefreshTokens(ctx context.Context, userID string) ([]domain.RefreshToken, error)
 
-	// Games (auth-scoped; empty until reviews exist)
+	// Games
 	ListUserGames(ctx context.Context, userID string) ([]string, error)
+
+	// Reviews
+	CreateReview(ctx context.Context, review domain.Review, runs []domain.Classification, breakdown []domain.ScoreBreakdownRow) (domain.Review, error)
+	GetReviewForUser(ctx context.Context, userID, reviewID string) (domain.Review, error)
+	ListReviews(ctx context.Context, userID string, filter domain.ReviewListFilter) ([]domain.Review, int, error)
+	DeleteReview(ctx context.Context, userID, reviewID string) error
+	GetClassifications(ctx context.Context, reviewID string) ([]domain.Classification, error)
+	GetScoreBreakdown(ctx context.Context, reviewID string) ([]domain.ScoreBreakdownRow, error)
+	ReplaceScore(ctx context.Context, userID string, review domain.Review, breakdown []domain.ScoreBreakdownRow) error
+	ListAllReviewsForUser(ctx context.Context, userID string) ([]domain.Review, error)
+	ListReviewsForGame(ctx context.Context, userID, gameName string) ([]domain.Review, error)
 }

@@ -15,14 +15,15 @@ import (
 
 // Dependencies are the services the HTTP transport needs.
 type Dependencies struct {
-	Config  config.Config
-	Tokens  *auth.TokenManager
-	Health  *service.HealthService
-	CfgSvc  *service.ConfigService
-	AuthSvc *service.AuthService
+	Config    config.Config
+	Tokens    *auth.TokenManager
+	Health    *service.HealthService
+	CfgSvc    *service.ConfigService
+	AuthSvc   *service.AuthService
+	ReviewSvc *service.ReviewService
 }
 
-// NewRouter builds the chi router (config + common + auth).
+// NewRouter builds the chi router (config + common + auth + reviews).
 func NewRouter(deps Dependencies) http.Handler {
 	r := chi.NewRouter()
 
@@ -42,29 +43,36 @@ func NewRouter(deps Dependencies) http.Handler {
 	health := NewHealthHandler(deps.Health)
 	cfg := NewConfigHandler(deps.CfgSvc)
 	authH := NewAuthHandler(deps.AuthSvc)
+	reviewH := NewReviewHandler(deps.ReviewSvc)
 
-	// Config module (§5 #1–2)
 	r.Get("/config", cfg.Config)
 	r.Get("/version", cfg.Version)
-
-	// Common module (§5 #3–4)
 	r.Get("/health", health.Live)
 	r.Get("/ready", health.Ready)
 
-	// Auth module (§5 #6–13) — public
 	r.Post("/auth/register", authH.Register)
 	r.Post("/auth/login", authH.Login)
 	r.Post("/auth/refresh", authH.Refresh)
 	r.Post("/auth/logout", authH.Logout)
 
-	// Auth + common protected (§5 #5, #10–13)
 	r.Group(func(pr chi.Router) {
 		pr.Use(RequireAuth(deps.Tokens))
+
 		pr.Get("/auth/me", authH.Me)
 		pr.Patch("/auth/me", authH.UpdateMe)
 		pr.Post("/auth/change-password", authH.ChangePassword)
 		pr.Get("/auth/sessions", authH.Sessions)
 		pr.Get("/games", authH.Games)
+		pr.Get("/games/{name}/average", reviewH.GameAverage)
+
+		// Static path before /reviews/{id}
+		pr.Get("/reviews/analytics", reviewH.Analytics)
+		pr.Post("/reviews", reviewH.Create)
+		pr.Get("/reviews", reviewH.List)
+		pr.Get("/reviews/{id}", reviewH.Get)
+		pr.Delete("/reviews/{id}", reviewH.Delete)
+		pr.Post("/reviews/{id}/rescore", reviewH.Rescore)
+		pr.Get("/reviews/{id}/score", reviewH.Score)
 	})
 
 	r.NotFound(func(w http.ResponseWriter, r *http.Request) {

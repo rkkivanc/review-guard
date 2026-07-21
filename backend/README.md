@@ -27,6 +27,11 @@ Auth (§5 #6–13) — bcrypt passwords, HS256 access JWT, rotating opaque refre
 - `GET /auth/me` · `PATCH /auth/me` · `POST /auth/change-password` · `GET /auth/sessions`
 - `GET /games` (auth; empty until reviews exist)
 
-Set `JWT_SECRET` in production. Local memory mode generates an ephemeral secret if unset.
+Reviews + decision scoring (§5 #14–21) — trust is **always recomputed server-side** on write/rescore:
+- `POST /reviews` · `GET /reviews` · `GET /reviews/{id}` · `DELETE /reviews/{id}`
+- `POST /reviews/{id}/rescore` · `GET /reviews/{id}/score`
+- `GET /reviews/analytics?threshold=` · `GET /games/{name}/average`
 
-All responses use the §5 envelope: `{ "success", "data", "error" }`.
+Pure scoring logic lives in `internal/scoring` (unit-tested). Client-supplied trust is ignored.
+
+Set `JWT_SECRET` in production. Local memory mode generates an ephemeral secret if unset.
