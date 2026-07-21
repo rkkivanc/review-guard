@@ -447,6 +447,90 @@ code,
   color: var(--ink);
 }
 
+.feedback-panel {
+  border: var(--border);
+  background: var(--paper);
+  padding: 1rem;
+  margin: 1rem 0;
+  box-shadow: var(--shadow);
+}
+
+.feedback-panel h3 {
+  margin-top: 0;
+}
+
+.verdict-grid {
+  display: flex;
+  flex-direction: column;
+  gap: 0.45rem;
+}
+
+.verdict-option {
+  display: flex;
+  gap: 0.5rem;
+  align-items: flex-start;
+  border: var(--border-thin);
+  padding: 0.55rem 0.65rem;
+  background: var(--white);
+  cursor: pointer;
+  font-size: 0.9rem;
+}
+
+.verdict-option.active {
+  background: #fff4ef;
+  box-shadow: 2px 2px 0 var(--ink);
+}
+
+.feedback-chip {
+  display: inline-block;
+  border: var(--border-thin);
+  padding: 0.1rem 0.35rem;
+  background: var(--white);
+  font-size: 0.75rem;
+  text-transform: capitalize;
+}
+
+.dim-score-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+  gap: 0.75rem;
+  margin: 0.75rem 0 1rem;
+}
+
+.dim-score-card {
+  border: var(--border-thin);
+  background: var(--white);
+  padding: 0.75rem;
+  box-shadow: 2px 2px 0 var(--ink);
+}
+
+.dim-score-actions {
+  display: flex;
+  gap: 0.4rem;
+  margin-top: 0.5rem;
+}
+
+.chip-btn {
+  appearance: none;
+  border: var(--border-thin);
+  background: var(--paper);
+  padding: 0.35rem 0.55rem;
+  font-size: 0.75rem;
+  font-weight: 700;
+  text-transform: uppercase;
+  cursor: pointer;
+}
+
+.chip-btn.ok {
+  background: var(--trust);
+  color: var(--white);
+}
+
+.chip-btn.bad {
+  background: var(--flare);
+  color: var(--ink);
+}
+
 .field select,
 .field textarea {
   border: var(--border-thin);
@@ -487,15 +571,61 @@ code,
   box-shadow: var(--shadow);
 }
 
+.review-hero {
+  border: var(--border);
+  background: var(--paper);
+  padding: 1rem;
+  margin: 0.75rem 0 1.25rem;
+  box-shadow: var(--shadow);
+}
+
+.review-body {
+  margin: 0.5rem 0 0;
+  font-size: 1.05rem;
+  line-height: 1.5;
+}
+
+.review-snip {
+  max-width: 16rem;
+  color: #333;
+  font-size: 0.85rem;
+}
+
+.label-lg {
+  font-size: 1.05rem;
+  font-weight: 600;
+}
+
+.stats-strip {
+  border: var(--border-thin);
+  background: var(--white);
+  padding: 0.85rem 1rem;
+  margin: 1rem 0;
+}
+
+.stats-strip h3 {
+  margin-top: 0;
+  font-size: 1rem;
+}
+
+.stats-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 1.25rem;
+  align-items: center;
+  margin: 0.5rem 0;
+  font-size: 0.95rem;
+}
+
 .trust-score {
-  font-size: 2rem;
+  font-size: 1.25rem;
   font-weight: 700;
   color: var(--trust);
 }
 
 .trust-grade {
   font-family: var(--font-display);
-  font-size: 2rem;
+  font-size: 1.25rem;
   font-weight: 700;
 }
 

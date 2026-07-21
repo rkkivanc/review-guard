@@ -243,6 +243,56 @@ func (s *ReviewService) GameAverage(ctx context.Context, userID, gameName string
 	}, nil
 }
 
+// SubmitFeedback stores per-dimension label correctness (does not mutate trust_score).
+func (s *ReviewService) SubmitFeedback(ctx context.Context, userID, reviewID string, fb domain.ClassificationFeedback) (domain.Review, error) {
+	var err error
+	if fb.Consistency, err = normalizeJudgment(fb.Consistency, []string{"aligned", "mismatched"}); err != nil {
+		return domain.Review{}, err
+	}
+	if fb.Authenticity, err = normalizeJudgment(fb.Authenticity, []string{"genuine", "suspicious", "bot"}); err != nil {
+		return domain.Review{}, err
+	}
+	if fb.Experience, err = normalizeJudgment(fb.Experience, []string{"experience_based", "speculative"}); err != nil {
+		return domain.Review{}, err
+	}
+	if fb.Usefulness, err = normalizeJudgment(fb.Usefulness, []string{"useful", "neutral", "empty"}); err != nil {
+		return domain.Review{}, err
+	}
+	fb.Note = strings.TrimSpace(fb.Note)
+	fb.CreatedAt = s.now().UTC()
+	return s.store.UpsertGradeFeedback(ctx, userID, reviewID, fb)
+}
+
+// FeedbackHints returns recent human label corrections for improving the in-browser prompt.
+func (s *ReviewService) FeedbackHints(ctx context.Context, userID string, limit int) ([]domain.FeedbackHint, error) {
+	return s.store.ListGradeFeedback(ctx, userID, limit)
+}
+
+func normalizeJudgment(j domain.DimJudgment, allowed []string) (domain.DimJudgment, error) {
+	j.ModelLabel = strings.ToLower(strings.TrimSpace(j.ModelLabel))
+	if j.ModelLabel == "" || !containsStr(allowed, j.ModelLabel) {
+		return domain.DimJudgment{}, domain.ErrValidation
+	}
+	if j.Correct {
+		j.CorrectLabel = ""
+		return j, nil
+	}
+	j.CorrectLabel = strings.ToLower(strings.TrimSpace(j.CorrectLabel))
+	if j.CorrectLabel == "" || !containsStr(allowed, j.CorrectLabel) {
+		return domain.DimJudgment{}, domain.ErrValidation
+	}
+	return j, nil
+}
+
+func containsStr(list []string, v string) bool {
+	for _, x := range list {
+		if x == v {
+			return true
+		}
+	}
+	return false
+}
+
 func (s *ReviewService) weights() scoring.Weights {
 	return scoring.Weights{
 		Authenticity: s.cfg.Weights.Authenticity,

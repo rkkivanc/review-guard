@@ -2,6 +2,7 @@
 
 import { useEffect, useMemo, useState, type FormEvent } from "react";
 import type { MLCEngineInterface } from "@mlc-ai/web-llm";
+import { GradeFeedbackForm } from "@/components/GradeFeedbackForm";
 import { GradeLegend } from "@/components/GradeLegend";
 import { ApiClientError, reviewsApi, type ReviewDetail } from "@/lib/api";
 import { useAuth } from "@/lib/auth";
@@ -127,11 +128,24 @@ export function SimulatorView() {
     }
     setBusy(true);
     try {
-      const result = await classifyReviewThreeTimes(engine, {
-        gameName: gameName.trim(),
-        stars,
-        reviewText: reviewText.trim(),
-      });
+      let hints: Awaited<ReturnType<typeof reviewsApi.feedbackHints>>["hints"] = [];
+      try {
+        const hintRes = await reviewsApi.feedbackHints(accessToken, 8);
+        hints = hintRes.hints;
+      } catch {
+        /* feedback hints are optional */
+      }
+
+      const result = await classifyReviewThreeTimes(
+        engine,
+        {
+          gameName: gameName.trim(),
+          stars,
+          reviewText: reviewText.trim(),
+        },
+        0.7,
+        hints,
+      );
       setRuns(result.runs);
       setLatencyMs(result.latencyMs);
 
@@ -157,8 +171,8 @@ export function SimulatorView() {
     <div>
       <h1>Review Simulator</h1>
       <p className="muted">
-        Classify in the browser with Gemma, then let the server score how trustworthy those labels
-        are.
+        Classify a review with Gemma (3 runs), inspect the labels, then use trust stats and your
+        rating to control how right those classifications are.
       </p>
 
       <div className="subnav" role="tablist" aria-label="Simulator subviews">
@@ -315,44 +329,37 @@ export function SimulatorView() {
       {subview === "result" && runs && (
         <div className="panel">
           <h2>Classification result</h2>
-          <p className="muted mono">Latency {latencyMs} ms · 3 runs @ temperature 0.7</p>
+          <p className="muted mono">3 runs @ temperature 0.7 · {latencyMs} ms</p>
 
           {saved ? (
-            <>
-              <div className="trust-banner">
-                <div>
-                  <div className="muted">Server trust score</div>
-                  <div className="trust-score mono">{saved.review.trust_score.toFixed(1)}</div>
-                </div>
-                <div>
-                  <div className="muted">Grade</div>
-                  <div className="trust-grade">{saved.review.grade}</div>
-                </div>
-                <div>
-                  <div className="muted">Needs review</div>
-                  <div className={saved.review.needs_review ? "flag-yes" : "flag-no"}>
-                    {saved.review.needs_review ? "Yes" : "No"}
-                  </div>
-                </div>
+            <div className="review-hero">
+              <div className="muted">
+                {saved.review.game_name} · {saved.review.stars}/10
               </div>
-              <p className="muted">{explainGrade(saved.review.grade)}</p>
-            </>
-          ) : null}
+              <p className="review-body">{saved.review.review_text}</p>
+            </div>
+          ) : (
+            <div className="review-hero">
+              <div className="muted">
+                {gameName} · {stars}/10
+              </div>
+              <p className="review-body">{reviewText}</p>
+            </div>
+          )}
 
-          <details className="run-details" style={{ marginBottom: "1rem" }}>
-            <summary>What do grades mean?</summary>
-            <GradeLegend compact />
-          </details>
-
-          <h3>Per-dimension agreement</h3>
+          <h3>Classification (majority labels)</h3>
+          <p className="muted">
+            Main output: what Gemma decided across the four dimensions, and how often the 3 runs
+            agreed.
+          </p>
           <div className="agree-grid">
             {(["consistency", "authenticity", "experience", "usefulness"] as const).map((dim) => {
               const { majority, agreement } = majorityAgreement(runs, dim);
               return (
                 <div key={dim} className="agree-card">
                   <div className="agree-dim">{dim}</div>
-                  <div className="mono">{majority}</div>
-                  <div className="muted">{Math.round(agreement * 100)}% agreement</div>
+                  <div className="mono label-lg">{majority}</div>
+                  <div className="muted">{Math.round(agreement * 100)}% agreement across runs</div>
                 </div>
               );
             })}
@@ -365,6 +372,53 @@ export function SimulatorView() {
               <pre className="mono run-pre">{JSON.stringify(run, null, 2)}</pre>
             </details>
           ))}
+
+          {saved ? (
+            <GradeFeedbackForm
+              reviewId={saved.review.id}
+              modelLabels={Object.fromEntries(
+                (saved.breakdown || []).map((b) => [b.dimension, b.final_label]),
+              )}
+              initial={saved.review.feedback}
+              onSaved={(fb) =>
+                setSaved((prev) =>
+                  prev ? { ...prev, review: { ...prev.review, feedback: fb } } : prev,
+                )
+              }
+            />
+          ) : null}
+
+          {saved ? (
+            <div className="stats-strip">
+              <h3>Trust statistics</h3>
+              <p className="muted">
+                Secondary signal: how stable/confident the classification was (not review quality).
+              </p>
+              <div className="stats-row">
+                <div>
+                  <span className="muted">Trust</span>{" "}
+                  <span className="mono">{saved.review.trust_score.toFixed(1)}</span>
+                </div>
+                <div>
+                  <span className="muted">Grade</span>{" "}
+                  <span className={`grade-pill grade-${saved.review.grade.toLowerCase()}`}>
+                    {saved.review.grade}
+                  </span>
+                </div>
+                <div>
+                  <span className="muted">Needs review</span>{" "}
+                  <span className={saved.review.needs_review ? "flag-yes" : "flag-no"}>
+                    {saved.review.needs_review ? "Yes" : "No"}
+                  </span>
+                </div>
+              </div>
+              <p className="muted">{explainGrade(saved.review.grade)}</p>
+              <details className="run-details">
+                <summary>What do grades mean?</summary>
+                <GradeLegend compact />
+              </details>
+            </div>
+          ) : null}
 
           <button className="btn secondary" type="button" onClick={() => setSubview("form")}>
             Classify another

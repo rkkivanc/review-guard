@@ -39,4 +39,6 @@ type Store interface {
 	ReplaceScore(ctx context.Context, userID string, review domain.Review, breakdown []domain.ScoreBreakdownRow) error
 	ListAllReviewsForUser(ctx context.Context, userID string) ([]domain.Review, error)
 	ListReviewsForGame(ctx context.Context, userID, gameName string) ([]domain.Review, error)
+	UpsertGradeFeedback(ctx context.Context, userID, reviewID string, fb domain.ClassificationFeedback) (domain.Review, error)
+	ListGradeFeedback(ctx context.Context, userID string, limit int) ([]domain.FeedbackHint, error)
 }

@@ -1,6 +1,7 @@
 "use client";
 
 import type { MLCEngineInterface } from "@mlc-ai/web-llm";
+import type { FeedbackHint } from "@/lib/api";
 import {
   buildClassifyPrompt,
   DEFAULT_MODEL_ID,
@@ -88,8 +89,9 @@ export async function classifyReviewThreeTimes(
   engine: MLCEngineInterface,
   input: { gameName: string; stars: number; reviewText: string },
   temperature = 0.7,
+  hints: FeedbackHint[] = [],
 ): Promise<{ runs: ClassificationRun[]; latencyMs: number }> {
-  const prompt = buildClassifyPrompt(input.gameName, input.stars, input.reviewText);
+  const prompt = buildClassifyPrompt(input.gameName, input.stars, input.reviewText, hints);
   const runs: ClassificationRun[] = [];
   const started = performance.now();
 

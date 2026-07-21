@@ -127,31 +127,19 @@ export type ClassificationRunPayload = {
   usefulness: { label: string; confidence: number; reason: string };
 };
 
-export type ReviewDetail = {
-  review: {
-    id: string;
-    user_id: string;
-    game_name: string;
-    stars: number;
-    review_text: string;
-    trust_score: number;
-    grade: string;
-    needs_review: boolean;
-    latency_ms: number;
-    created_at: string;
-  };
-  runs: Array<{ id: string; review_id: string; run_index: number; payload: ClassificationRunPayload }>;
-  breakdown: Array<{
-    id: string;
-    review_id: string;
-    dimension: string;
-    final_label: string;
-    agreement: number;
-    avg_confidence: number;
-    dim_score: number;
-  }>;
-  composite: number;
-  penalty: number;
+export type DimJudgment = {
+  correct: boolean;
+  model_label: string;
+  correct_label?: string;
+};
+
+export type ClassificationFeedback = {
+  consistency: DimJudgment;
+  authenticity: DimJudgment;
+  experience: DimJudgment;
+  usefulness: DimJudgment;
+  note?: string;
+  created_at: string;
 };
 
 export type ReviewSummary = {
@@ -165,6 +153,7 @@ export type ReviewSummary = {
   needs_review: boolean;
   latency_ms: number;
   created_at: string;
+  feedback?: ClassificationFeedback | null;
 };
 
 export type ReviewListResponse = {
@@ -172,6 +161,46 @@ export type ReviewListResponse = {
   total: number;
   limit: number;
   offset: number;
+};
+
+export type FeedbackHint = {
+  game_name: string;
+  stars: number;
+  corrections: Array<{
+    dimension: string;
+    model_label: string;
+    correct: boolean;
+    correct_label?: string;
+  }>;
+  note?: string;
+};
+
+export type ReviewDetail = {
+  review: {
+    id: string;
+    user_id: string;
+    game_name: string;
+    stars: number;
+    review_text: string;
+    trust_score: number;
+    grade: string;
+    needs_review: boolean;
+    latency_ms: number;
+    created_at: string;
+    feedback?: ClassificationFeedback | null;
+  };
+  runs: Array<{ id: string; review_id: string; run_index: number; payload: ClassificationRunPayload }>;
+  breakdown: Array<{
+    id: string;
+    review_id: string;
+    dimension: string;
+    final_label: string;
+    agreement: number;
+    avg_confidence: number;
+    dim_score: number;
+  }>;
+  composite: number;
+  penalty: number;
 };
 
 export const reviewsApi = {
@@ -205,6 +234,28 @@ export const reviewsApi = {
   remove(accessToken: string, id: string) {
     return apiRequest<{ deleted: boolean }>(`/reviews/${id}`, {
       method: "DELETE",
+      accessToken,
+    });
+  },
+  feedback(
+    accessToken: string,
+    id: string,
+    body: {
+      consistency: DimJudgment;
+      authenticity: DimJudgment;
+      experience: DimJudgment;
+      usefulness: DimJudgment;
+      note?: string;
+    },
+  ) {
+    return apiRequest<ReviewSummary>(`/reviews/${id}/feedback`, {
+      method: "POST",
+      accessToken,
+      body,
+    });
+  },
+  feedbackHints(accessToken: string, limit = 8) {
+    return apiRequest<{ hints: FeedbackHint[] }>(`/reviews/feedback/hints?limit=${limit}`, {
       accessToken,
     });
   },

@@ -177,6 +177,55 @@ func (h *ReviewHandler) GameAverage(w http.ResponseWriter, r *http.Request) {
 	WriteOK(w, http.StatusOK, avg)
 }
 
+type feedbackRequest struct {
+	Consistency  domain.DimJudgment `json:"consistency"`
+	Authenticity domain.DimJudgment `json:"authenticity"`
+	Experience   domain.DimJudgment `json:"experience"`
+	Usefulness   domain.DimJudgment `json:"usefulness"`
+	Note         string             `json:"note"`
+}
+
+// Feedback handles POST /reviews/{id}/feedback.
+func (h *ReviewHandler) Feedback(w http.ResponseWriter, r *http.Request) {
+	userID, ok := UserIDFromContext(r.Context())
+	if !ok {
+		WriteErr(w, http.StatusUnauthorized, "unauthorized", "authentication required")
+		return
+	}
+	var req feedbackRequest
+	if err := decodeJSON(r, &req); err != nil {
+		WriteErr(w, http.StatusBadRequest, "bad_request", "invalid JSON body")
+		return
+	}
+	review, err := h.svc.SubmitFeedback(r.Context(), userID, chi.URLParam(r, "id"), domain.ClassificationFeedback{
+		Consistency:  req.Consistency,
+		Authenticity: req.Authenticity,
+		Experience:   req.Experience,
+		Usefulness:   req.Usefulness,
+		Note:         req.Note,
+	})
+	if err != nil {
+		mapAuthErr(w, err)
+		return
+	}
+	WriteOK(w, http.StatusOK, review)
+}
+
+// FeedbackHints handles GET /reviews/feedback/hints.
+func (h *ReviewHandler) FeedbackHints(w http.ResponseWriter, r *http.Request) {
+	userID, ok := UserIDFromContext(r.Context())
+	if !ok {
+		WriteErr(w, http.StatusUnauthorized, "unauthorized", "authentication required")
+		return
+	}
+	hints, err := h.svc.FeedbackHints(r.Context(), userID, queryInt(r.URL.Query().Get("limit"), 8))
+	if err != nil {
+		mapAuthErr(w, err)
+		return
+	}
+	WriteOK(w, http.StatusOK, map[string]any{"hints": hints})
+}
+
 func queryInt(raw string, fallback int) int {
 	if raw == "" {
 		return fallback

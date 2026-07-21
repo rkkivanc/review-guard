@@ -1,6 +1,7 @@
 "use client";
 
 import { Fragment, useCallback, useEffect, useState } from "react";
+import { GradeFeedbackForm } from "@/components/GradeFeedbackForm";
 import { GradeLegend } from "@/components/GradeLegend";
 import {
   ApiClientError,
@@ -82,9 +83,10 @@ export function DashboardView() {
 
   return (
     <div>
-      <h1>Monitoring &amp; Decision Scoring</h1>
+      <h1>Classifications</h1>
       <p className="muted">
-        All saved classifications for your account. Trust scores are computed on the server.
+        Control how reviews were classified. Trust grade is a supporting statistic about how stable
+        those labels were.
       </p>
 
       <div className="subnav" role="tablist" aria-label="Dashboard subviews">
@@ -142,10 +144,12 @@ export function DashboardView() {
                 <thead>
                   <tr>
                     <th>Game</th>
+                    <th>Review</th>
                     <th>Stars</th>
                     <th>Trust</th>
                     <th>Grade</th>
                     <th>Flag</th>
+                    <th>Your rating</th>
                     <th>When</th>
                     <th></th>
                   </tr>
@@ -163,8 +167,9 @@ export function DashboardView() {
                             {r.game_name}
                           </button>
                         </td>
+                        <td className="review-snip">{snip(r.review_text)}</td>
                         <td className="mono">{r.stars}/10</td>
-                        <td className="mono">{r.trust_score.toFixed(1)}</td>
+                        <td className="mono muted">{r.trust_score.toFixed(1)}</td>
                         <td>
                           <span
                             className={`grade-pill grade-${r.grade.toLowerCase()}`}
@@ -174,6 +179,15 @@ export function DashboardView() {
                           </span>
                         </td>
                         <td>{r.needs_review ? <span className="flag-yes">Review</span> : "—"}</td>
+                        <td className="mono muted">
+                          {r.feedback ? (
+                            <span className="feedback-chip" title="Your label scores">
+                              {summarizeLabelScores(r.feedback)}
+                            </span>
+                          ) : (
+                            "—"
+                          )}
+                        </td>
                         <td className="mono muted">{new Date(r.created_at).toLocaleString()}</td>
                         <td>
                           <button
@@ -187,17 +201,19 @@ export function DashboardView() {
                       </tr>
                       {selectedId === r.id ? (
                         <tr className="detail-row">
-                          <td colSpan={7}>
+                          <td colSpan={9}>
                             {detailLoading && <p className="muted">Loading classification…</p>}
                             {detail && detail.review.id === r.id && (
                               <div className="detail-block">
-                                <p>{detail.review.review_text}</p>
-                                <p className="muted">{explainGrade(detail.review.grade)}</p>
+                                <h3>Review</h3>
+                                <p className="review-body">{detail.review.review_text}</p>
+
+                                <h3>Classification labels</h3>
                                 <div className="agree-grid">
                                   {detail.breakdown.map((b) => (
                                     <div key={b.id} className="agree-card">
                                       <div className="agree-dim">{b.dimension}</div>
-                                      <div className="mono">{b.final_label}</div>
+                                      <div className="mono label-lg">{b.final_label}</div>
                                       <div className="muted">
                                         {Math.round(b.agreement * 100)}% agree · conf{" "}
                                         {b.avg_confidence.toFixed(2)}
@@ -205,6 +221,7 @@ export function DashboardView() {
                                     </div>
                                   ))}
                                 </div>
+
                                 <details>
                                   <summary>Raw model runs (3)</summary>
                                   {detail.runs.map((run) => (
@@ -213,6 +230,55 @@ export function DashboardView() {
                                     </pre>
                                   ))}
                                 </details>
+
+                                <GradeFeedbackForm
+                                  reviewId={detail.review.id}
+                                  modelLabels={Object.fromEntries(
+                                    detail.breakdown.map((b) => [b.dimension, b.final_label]),
+                                  )}
+                                  initial={detail.review.feedback}
+                                  onSaved={(fb) => {
+                                    setDetail((prev) =>
+                                      prev
+                                        ? { ...prev, review: { ...prev.review, feedback: fb } }
+                                        : prev,
+                                    );
+                                    setItems((prev) =>
+                                      prev.map((it) =>
+                                        it.id === detail.review.id ? { ...it, feedback: fb } : it,
+                                      ),
+                                    );
+                                  }}
+                                />
+
+                                <div className="stats-strip">
+                                  <h3>Trust statistics</h3>
+                                  <p className="muted">{explainGrade(detail.review.grade)}</p>
+                                  <div className="stats-row">
+                                    <div>
+                                      <span className="muted">Trust</span>{" "}
+                                      <span className="mono">
+                                        {detail.review.trust_score.toFixed(1)}
+                                      </span>
+                                    </div>
+                                    <div>
+                                      <span className="muted">Grade</span>{" "}
+                                      <span
+                                        className={`grade-pill grade-${detail.review.grade.toLowerCase()}`}
+                                      >
+                                        {detail.review.grade}
+                                      </span>
+                                    </div>
+                                    <div>
+                                      <span className="muted">Needs review</span>{" "}
+                                      {detail.review.needs_review ? (
+                                        <span className="flag-yes">Yes</span>
+                                      ) : (
+                                        "No"
+                                      )}
+                                    </div>
+                                  </div>
+                                </div>
                               </div>
                             )}
                           </td>
@@ -228,4 +294,19 @@ export function DashboardView() {
       )}
     </div>
   );
+}
+
+function snip(text: string, n = 72): string {
+  const t = text.trim().replace(/\s+/g, " ");
+  if (t.length <= n) return t;
+  return `${t.slice(0, n)}…`;
+}
+
+function summarizeLabelScores(fb: NonNullable<ReviewSummary["feedback"]>): string {
+  const dims = ["consistency", "authenticity", "experience", "usefulness"] as const;
+  const ok = dims.filter((d) => fb[d].correct).length;
+  const wrong = dims.length - ok;
+  if (wrong === 0) return "4 correct";
+  if (ok === 0) return "4 wrong";
+  return `${ok} correct · ${wrong} wrong`;
 }

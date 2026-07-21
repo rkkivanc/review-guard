@@ -8,16 +8,51 @@ import (
 
 // Review is a persisted game review with server-computed trust fields.
 type Review struct {
-	ID          string    `json:"id"`
-	UserID      string    `json:"user_id"`
-	GameName    string    `json:"game_name"`
-	Stars       int       `json:"stars"`
-	ReviewText  string    `json:"review_text"`
-	TrustScore  float64   `json:"trust_score"`
-	Grade       string    `json:"grade"`
-	NeedsReview bool      `json:"needs_review"`
-	LatencyMS   int       `json:"latency_ms"`
-	CreatedAt   time.Time `json:"created_at"`
+	ID          string                  `json:"id"`
+	UserID      string                  `json:"user_id"`
+	GameName    string                  `json:"game_name"`
+	Stars       int                     `json:"stars"`
+	ReviewText  string                  `json:"review_text"`
+	TrustScore  float64                 `json:"trust_score"`
+	Grade       string                  `json:"grade"`
+	NeedsReview bool                    `json:"needs_review"`
+	LatencyMS   int                     `json:"latency_ms"`
+	CreatedAt   time.Time               `json:"created_at"`
+	Feedback    *ClassificationFeedback `json:"feedback,omitempty"`
+}
+
+// DimJudgment is the user's correctness mark for one classification dimension.
+type DimJudgment struct {
+	Correct      bool   `json:"correct"`
+	ModelLabel   string `json:"model_label"`
+	CorrectLabel string `json:"correct_label,omitempty"` // required when Correct is false
+}
+
+// ClassificationFeedback scores whether each dimension label was right.
+// It does not change server trust statistics; it guides later in-browser prompts.
+type ClassificationFeedback struct {
+	Consistency  DimJudgment `json:"consistency"`
+	Authenticity DimJudgment `json:"authenticity"`
+	Experience   DimJudgment `json:"experience"`
+	Usefulness   DimJudgment `json:"usefulness"`
+	Note         string      `json:"note,omitempty"`
+	CreatedAt    time.Time   `json:"created_at"`
+}
+
+// FeedbackHint is a compact row used to improve later Gemma prompts.
+type FeedbackHint struct {
+	GameName    string          `json:"game_name"`
+	Stars       int             `json:"stars"`
+	Corrections []DimCorrection `json:"corrections"`
+	Note        string          `json:"note,omitempty"`
+}
+
+// DimCorrection is one human correction (or confirmation) for a dimension label.
+type DimCorrection struct {
+	Dimension    string `json:"dimension"`
+	ModelLabel   string `json:"model_label"`
+	Correct      bool   `json:"correct"`
+	CorrectLabel string `json:"correct_label,omitempty"`
 }
 
 // Classification is one model run payload stored for audit/rescore.

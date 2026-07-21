@@ -420,3 +420,74 @@ func (m *MemoryStore) ListReviewsForGame(ctx context.Context, userID, gameName s
 	}
 	return out, nil
 }
+
+func (m *MemoryStore) UpsertGradeFeedback(ctx context.Context, userID, reviewID string, fb domain.ClassificationFeedback) (domain.Review, error) {
+	if err := ctx.Err(); err != nil {
+		return domain.Review{}, err
+	}
+	m.mu.Lock()
+	defer m.mu.Unlock()
+
+	r, ok := m.reviewsByID[reviewID]
+	if !ok || r.UserID != userID {
+		return domain.Review{}, domain.ErrNotFound
+	}
+	cp := fb
+	r.Feedback = &cp
+	m.reviewsByID[reviewID] = r
+	return r, nil
+}
+
+func (m *MemoryStore) ListGradeFeedback(ctx context.Context, userID string, limit int) ([]domain.FeedbackHint, error) {
+	if err := ctx.Err(); err != nil {
+		return nil, err
+	}
+	m.mu.RLock()
+	defer m.mu.RUnlock()
+
+	if limit <= 0 {
+		limit = 10
+	}
+	type pair struct {
+		r  domain.Review
+		at time.Time
+	}
+	rows := make([]pair, 0)
+	for _, r := range m.reviewsByID {
+		if r.UserID != userID || r.Feedback == nil {
+			continue
+		}
+		rows = append(rows, pair{r: r, at: r.Feedback.CreatedAt})
+	}
+	sort.Slice(rows, func(i, j int) bool {
+		return rows[i].at.After(rows[j].at)
+	})
+	if len(rows) > limit {
+		rows = rows[:limit]
+	}
+	out := make([]domain.FeedbackHint, 0, len(rows))
+	for _, row := range rows {
+		fb := row.r.Feedback
+		out = append(out, domain.FeedbackHint{
+			GameName: row.r.GameName,
+			Stars:    row.r.Stars,
+			Note:     fb.Note,
+			Corrections: []domain.DimCorrection{
+				packCorrection("consistency", fb.Consistency),
+				packCorrection("authenticity", fb.Authenticity),
+				packCorrection("experience", fb.Experience),
+				packCorrection("usefulness", fb.Usefulness),
+			},
+		})
+	}
+	return out, nil
+}
+
+func packCorrection(dim string, j domain.DimJudgment) domain.DimCorrection {
+	return domain.DimCorrection{
+		Dimension:    dim,
+		ModelLabel:   j.ModelLabel,
+		Correct:      j.Correct,
+		CorrectLabel: j.CorrectLabel,
+	}
+}

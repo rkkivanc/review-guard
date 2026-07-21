@@ -65,14 +65,16 @@ func NewRouter(deps Dependencies) http.Handler {
 		pr.Get("/games", authH.Games)
 		pr.Get("/games/{name}/average", reviewH.GameAverage)
 
-		// Static path before /reviews/{id}
+		// Static paths before /reviews/{id}
 		pr.Get("/reviews/analytics", reviewH.Analytics)
+		pr.Get("/reviews/feedback/hints", reviewH.FeedbackHints)
 		pr.Post("/reviews", reviewH.Create)
 		pr.Get("/reviews", reviewH.List)
 		pr.Get("/reviews/{id}", reviewH.Get)
 		pr.Delete("/reviews/{id}", reviewH.Delete)
 		pr.Post("/reviews/{id}/rescore", reviewH.Rescore)
 		pr.Get("/reviews/{id}/score", reviewH.Score)
+		pr.Post("/reviews/{id}/feedback", reviewH.Feedback)
 	})
 
 	r.NotFound(func(w http.ResponseWriter, r *http.Request) {

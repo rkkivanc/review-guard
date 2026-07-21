@@ -28,13 +28,42 @@ const LABEL_SETS = {
   usefulness: ["useful", "neutral", "empty"],
 } as const;
 
-export function buildClassifyPrompt(gameName: string, stars: number, reviewText: string): string {
+import type { FeedbackHint } from "@/lib/api";
+
+export function buildClassifyPrompt(
+  gameName: string,
+  stars: number,
+  reviewText: string,
+  hints: FeedbackHint[] = [],
+): string {
+  let feedbackBlock = "";
+  if (hints.length > 0) {
+    const lines: string[] = [];
+    hints.forEach((h, i) => {
+      const fixes = (h.corrections || [])
+        .map((c) =>
+          c.correct
+            ? `${c.dimension}=${c.model_label} (user: correct)`
+            : `${c.dimension}: model=${c.model_label} → user=${c.correct_label}`,
+        )
+        .join("; ");
+      const note = h.note ? ` note="${h.note.replace(/"/g, "'")}"` : "";
+      lines.push(`${i + 1}. game=${h.game_name} stars=${h.stars} | ${fixes}${note}`);
+    });
+    feedbackBlock = `
+
+Human corrections on earlier classifications (prefer these lessons; do not copy blindly):
+${lines.join("\n")}
+If a similar mistake pattern appears, choose the user-corrected label and lower confidence when unsure.`;
+  }
+
   return `You are a strict game-review analyst. Classify the review below across four
 dimensions. Respond with ONLY a JSON object, no prose, no markdown fences.
 
 Game: ${gameName}
 Star rating (1-10): ${stars}
 Review: "${reviewText}"
+${feedbackBlock}
 
 Return exactly:
 {
