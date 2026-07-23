@@ -228,7 +228,11 @@ func mapAuthErr(w http.ResponseWriter, err error) {
 	case errors.Is(err, domain.ErrForbidden):
 		WriteErr(w, http.StatusForbidden, "forbidden", "you do not have permission to do that")
 	case errors.Is(err, domain.ErrLLMUnavailable):
-		WriteErr(w, http.StatusBadGateway, "llm_unavailable", "classification service is unavailable — try again")
+		msg := "classification service is unavailable — try again"
+		if err != nil && err.Error() != "" && err.Error() != domain.ErrLLMUnavailable.Error() {
+			msg = err.Error()
+		}
+		WriteErr(w, http.StatusBadGateway, "llm_unavailable", msg)
 	default:
 		WriteErr(w, http.StatusInternalServerError, "internal_error", "something went wrong")
 	}
