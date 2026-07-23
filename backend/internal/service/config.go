@@ -3,6 +3,7 @@ package service
 import (
 	"github.com/masterfabric/review-guard/mf-backend/internal/config"
 	"github.com/masterfabric/review-guard/mf-backend/internal/domain"
+	"strings"
 )
 
 // ConfigService exposes public runtime configuration to clients.
@@ -17,6 +18,7 @@ func NewConfigService(cfg config.Config) *ConfigService {
 
 // Public returns the knobs the SPA needs (thresholds, runs, weights, flags).
 func (s *ConfigService) Public() domain.PublicConfig {
+	llmConfigured := strings.TrimSpace(s.cfg.MLCLLMURL) != ""
 	return domain.PublicConfig{
 		ClassificationRuns:        s.cfg.ClassificationRuns,
 		ClassificationTemperature: s.cfg.ClassificationTemperature,
@@ -29,11 +31,12 @@ func (s *ConfigService) Public() domain.PublicConfig {
 		},
 		Flags: map[string]bool{
 			"memory_store":   s.cfg.UsingMemoryStore(),
-			"llm_in_browser": true,
+			"llm_in_browser": false,
 			"server_scores":  true,
+			"llm_backend":    llmConfigured,
 		},
-		// Model stays in-browser; backend only advertises the expected id.
-		ModelID: "gemma-2-2b-it-q4f16_1-MLC",
+		ModelID:          s.cfg.MLCModelID,
+		LLMURLConfigured: llmConfigured,
 	}
 }
 

@@ -8,7 +8,7 @@ export function GradeLegend({ compact = false }: { compact?: boolean }) {
       <h3>What grades mean</h3>
       <p className="muted">
         Grade is derived from the server trust score (0–100), which measures how stable and
-        confident the in-browser classifications were — not whether the review is “correct.”
+        confident the classifications were — not whether the review is “correct.”
       </p>
       <ul className="grade-list">
         {GRADE_LEGEND.map((g) => (

@@ -107,7 +107,7 @@ export function GradeFeedbackForm({ reviewId, modelLabels, initial, onSaved }: P
     <form className="feedback-panel" onSubmit={onSubmit}>
       <h3>Score classification correctness</h3>
       <p className="muted">
-        Primary score: mark whether each dimension label is right. Corrections also teach later Gemma
+        Primary score: mark whether each dimension label is right. Corrections also teach later
         runs. Trust stats stay separate.
       </p>
 

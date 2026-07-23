@@ -13,6 +13,8 @@ internal/service    → use cases
 internal/repository → Store interface + memory + Postgres/pgxpool
 internal/httpapi    → transport (chi handlers + response envelope)
 internal/scoring    → pure trust scoring (unit-tested)
+internal/llm        → OpenAI-compatible MLC LLM client
+internal/metrics    → Prometheus /metrics
 internal/auth       → JWT + refresh helpers
 internal/config     → environment configuration
 ```
@@ -21,7 +23,10 @@ Service packages depend on **narrow consumer-side interfaces** (`UserRepository`
 
 ## Run
 
+Prefer Docker Compose from the repo root (`MLC_LLM_URL` is wired automatically). Standalone:
+
 ```bash
+export MLC_LLM_URL=http://localhost:8000
 go run ./cmd/server
 ```
 
@@ -34,7 +39,7 @@ Set `JWT_SECRET` in production. Local memory mode persists a secret under `DATA_
 
 Smoke:
 
-- `GET /health` · `GET /ready` · `GET /config` · `GET /version`
+- `GET /health` · `GET /ready` · `GET /config` · `GET /version` · `GET /metrics`
 
 Auth — bcrypt passwords, HS256 access JWT, rotating opaque refresh (sha256 at rest):
 
@@ -42,7 +47,7 @@ Auth — bcrypt passwords, HS256 access JWT, rotating opaque refresh (sha256 at 
 - `GET /auth/me` · `PATCH /auth/me` · `POST /auth/change-password` · `GET /auth/sessions`
 - `GET /games` (auth; empty until reviews exist)
 
-Reviews + decision scoring — trust is **always recomputed server-side** on write/rescore; client-supplied trust is ignored:
+Reviews + decision scoring — backend classifies via MLC LLM, then trust is **always recomputed server-side** (client cannot supply runs/trust):
 
 - `POST /reviews` · `GET /reviews` · `GET /reviews/{id}` · `DELETE /reviews/{id}`
 - `POST /reviews/{id}/rescore` · `GET /reviews/{id}/score`
@@ -56,3 +61,4 @@ Reviews + decision scoring — trust is **always recomputed server-side** on wri
 - Pagination capped (`limit≤100`, `offset≤10000`); body size limits on auth/review JSON
 - `X-Refresh-Token` header only (no query-string secrets); security headers enabled
 - Optional `TRUSTED_PROXIES` CIDR list for `X-Forwarded-For`
+- Structured JSON request logs + Prometheus metrics for Grafana

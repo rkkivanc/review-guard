@@ -9,7 +9,6 @@
     "lint": "eslint"
   },
   "dependencies": {
-    "@mlc-ai/web-llm": "^0.2.84",
     "next": "15.5.20",
     "react": "19.1.0",
     "react-dom": "19.1.0"

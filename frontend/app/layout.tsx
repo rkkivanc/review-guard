@@ -24,7 +24,7 @@ const jetbrains = JetBrains_Mono({
 export const metadata: Metadata = {
   title: "ReviewGuard",
   description:
-    "Classify game reviews in-browser with Gemma, then trust-score the classifications on the server.",
+    "Classify game reviews with a backend MLC LLM, then trust-score the classifications on the server.",
 };
 
 export default function RootLayout({ children }: Readonly<{ children: React.ReactNode }>) {

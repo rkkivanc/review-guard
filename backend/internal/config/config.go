@@ -28,6 +28,11 @@ type Config struct {
 	ClassificationTemperature float64
 	TrustThreshold            float64
 	Weights                   DimensionWeights
+
+	// MLC LLM (OpenAI-compatible) service.
+	MLCLLMURL   string
+	MLCModelID  string
+	LLMTimeout  time.Duration
 }
 
 // DimensionWeights are the composite trust-score weights from PROJECT_CONTEXT §4.
@@ -60,6 +65,10 @@ func Load() Config {
 			Consistency:  0.25,
 			Usefulness:   0.15,
 		},
+
+		MLCLLMURL:  strings.TrimSpace(os.Getenv("MLC_LLM_URL")),
+		MLCModelID: envOr("MLC_MODEL_ID", "gemma-2-2b-it-q4f16_1-MLC"),
+		LLMTimeout: envDuration("LLM_TIMEOUT", 60*time.Second),
 	}
 }
 

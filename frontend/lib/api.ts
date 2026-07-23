@@ -24,11 +24,38 @@ export type AuthTokens = {
   user: User;
 };
 
-const API_URL =
-  process.env.NEXT_PUBLIC_API_URL?.replace(/\/$/, "") || "http://localhost:8080";
+const CLOUD_API_URL = "https://reviewguard-api.onrender.com";
 
+/** Ensure scheme so fetch never treats the host as a relative path. */
+function normalizeApiUrl(raw: string | undefined | null): string {
+  let u = (raw || "").trim().replace(/\/$/, "");
+  if (!u) return "";
+  // Host-only values (e.g. reviewguard-api.onrender.com) become relative without this.
+  if (!/^https?:\/\//i.test(u)) {
+    u = `https://${u.replace(/^\/+/, "")}`;
+  }
+  // Repair https:/host typos
+  if (u.startsWith("https:/") && !u.startsWith("https://")) {
+    u = `https://${u.slice("https:/".length)}`;
+  }
+  if (u.startsWith("http:/") && !u.startsWith("http://")) {
+    u = `http://${u.slice("http:/".length)}`;
+  }
+  return u.replace(/\/$/, "");
+}
+
+const BAKED_API_URL = normalizeApiUrl(process.env.NEXT_PUBLIC_API_URL);
+
+/** Runtime-safe API base (never return a scheme-less URL). */
 export function getApiUrl() {
-  return API_URL;
+  if (typeof window !== "undefined") {
+    const host = window.location.hostname;
+    // Always use the known absolute Render API on Vercel — ignore bad/scheme-less env bakes.
+    if (host.endsWith("vercel.app") || host.endsWith("vercel.sh")) {
+      return CLOUD_API_URL;
+    }
+  }
+  return BAKED_API_URL || "http://localhost:8080";
 }
 
 export class ApiClientError extends Error {
@@ -54,6 +81,7 @@ export async function apiRequest<T>(
   path: string,
   options: RequestOptions = {},
 ): Promise<T> {
+  const apiUrl = getApiUrl();
   const headers: Record<string, string> = {
     Accept: "application/json",
   };
@@ -64,18 +92,35 @@ export async function apiRequest<T>(
     headers.Authorization = `Bearer ${options.accessToken}`;
   }
 
-  const res = await fetch(`${API_URL}${path}`, {
-    method: options.method || "GET",
-    headers,
-    body: options.body !== undefined ? JSON.stringify(options.body) : undefined,
-    signal: options.signal,
-  });
+  let res: Response;
+  try {
+    res = await fetch(`${apiUrl}${path}`, {
+      method: options.method || "GET",
+      headers,
+      body: options.body !== undefined ? JSON.stringify(options.body) : undefined,
+      signal: options.signal,
+    });
+  } catch {
+    throw new ApiClientError(
+      0,
+      "network_error",
+      `Failed to reach API at ${apiUrl}. Is NEXT_PUBLIC_API_URL set correctly?`,
+    );
+  }
 
+  const text = await res.text();
   let envelope: Envelope<T>;
   try {
-    envelope = (await res.json()) as Envelope<T>;
+    envelope = JSON.parse(text) as Envelope<T>;
   } catch {
-    throw new ApiClientError(res.status, "bad_response", "Server returned a non-JSON response.");
+    const snippet = text.replace(/\s+/g, " ").trim().slice(0, 80);
+    throw new ApiClientError(
+      res.status,
+      "bad_response",
+      `Server returned a non-JSON response from ${apiUrl}${path}` +
+        (snippet ? ` (${snippet})` : "") +
+        ". Try again, or check that the API is running.",
+    );
   }
 
   if (!envelope.success || envelope.data === null) {
@@ -214,8 +259,6 @@ export const reviewsApi = {
       game_name: string;
       stars: number;
       review_text: string;
-      latency_ms: number;
-      runs: ClassificationRunPayload[];
     },
   ) {
     return apiRequest<ReviewDetail>("/reviews", {

@@ -5,26 +5,29 @@ Next.js 15 App Router SPA — one shell + client-side master view router. See th
 ## Master views
 
 1. **Auth** — Login / Register (only when logged out)
-2. **Simulator** — Model loader · review form · classification result (`@mlc-ai/web-llm` + Gemma)
+2. **Simulator** — Review form · classification result (backend MLC LLM via API)
 3. **Dashboard** — overview, classification history, per-game averages, grade legend, and correctness feedback
 
 ## Run
 
-```bash
-# terminal 1 — API
-cd ../backend && go run ./cmd/server
+With the Docker stack (recommended):
 
-# terminal 2 — UI
-cp .env.example .env.local   # optional; defaults to localhost:8080
+```bash
+# repo root
+docker compose up --build
+
+# UI
+cp .env.example .env.local   # set NEXT_PUBLIC_API_URL=http://localhost:8088
 npm install
 npm run dev
 ```
+
+Or point at a local API on `:8080` (must have `MLC_LLM_URL` configured).
 
 Open [http://localhost:3000](http://localhost:3000).
 
 ## Notes
 
 - Access JWT stays in memory; refresh token in `sessionStorage` (rotates on use).
-- LLM runs 100% in-browser via `@mlc-ai/web-llm` (`gemma-2-2b-it-q4f16_1-MLC`). The backend never calls a model.
-- First model load ~1.5 GB (cached). Needs WebGPU (Chrome / Edge 113+).
+- Classification is **server-side** (`POST /reviews` → backend → `mlc-llm` container). No `@mlc-ai/web-llm` / WebGPU required.
 - UI is English-only; styling uses neo-brutalist tokens.

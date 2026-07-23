@@ -6,7 +6,7 @@ import (
 
 	"github.com/masterfabric/review-guard/mf-backend/internal/config"
 	"github.com/masterfabric/review-guard/mf-backend/internal/domain"
-	"github.com/masterfabric/review-guard/mf-backend/internal/scoring"
+	"github.com/masterfabric/review-guard/mf-backend/internal/llm"
 )
 
 const (
@@ -37,21 +37,20 @@ type ReviewRepository interface {
 type ReviewService struct {
 	store ReviewRepository
 	cfg   config.Config
+	llm   *llm.Client
 	now   func() time.Time
 }
 
 // NewReviewService constructs a ReviewService.
-func NewReviewService(store ReviewRepository, cfg config.Config) *ReviewService {
-	return &ReviewService{store: store, cfg: cfg, now: time.Now}
+func NewReviewService(store ReviewRepository, cfg config.Config, llmClient *llm.Client) *ReviewService {
+	return &ReviewService{store: store, cfg: cfg, llm: llmClient, now: time.Now}
 }
 
-// CreateReviewInput is the client payload for POST /reviews (no trust fields).
+// CreateReviewInput is the client payload for POST /reviews (no trust fields, no client runs).
 type CreateReviewInput struct {
 	GameName   string
 	Stars      int
 	ReviewText string
-	LatencyMS  int
-	Runs       []scoring.Run
 }
 
 // ScoreResponse is the typed GET /reviews/{id}/score payload.

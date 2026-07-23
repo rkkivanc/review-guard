@@ -14,6 +14,7 @@ import (
 	"github.com/masterfabric/review-guard/mf-backend/internal/auth"
 	"github.com/masterfabric/review-guard/mf-backend/internal/config"
 	"github.com/masterfabric/review-guard/mf-backend/internal/httpapi"
+	"github.com/masterfabric/review-guard/mf-backend/internal/llm"
 	"github.com/masterfabric/review-guard/mf-backend/internal/repository"
 	"github.com/masterfabric/review-guard/mf-backend/internal/service"
 )
@@ -66,7 +67,13 @@ func main() {
 	healthSvc := service.NewHealthService(cfg, store)
 	cfgSvc := service.NewConfigService(cfg)
 	authSvc := service.NewAuthService(store, tokens)
-	reviewSvc := service.NewReviewService(store, cfg)
+	llmClient := llm.NewClient(cfg.MLCLLMURL, cfg.MLCModelID, cfg.ClassificationRuns, cfg.ClassificationTemperature, cfg.LLMTimeout)
+	if llmClient.Enabled() {
+		slog.Info("MLC LLM client configured", "url", cfg.MLCLLMURL, "model", cfg.MLCModelID)
+	} else {
+		slog.Warn("MLC_LLM_URL unset; POST /reviews will fail until the LLM service is configured")
+	}
+	reviewSvc := service.NewReviewService(store, cfg, llmClient)
 
 	router := httpapi.NewRouter(httpapi.Dependencies{
 		Config:    cfg,
@@ -81,8 +88,8 @@ func main() {
 		Addr:              ":" + cfg.Port,
 		Handler:           router,
 		ReadHeaderTimeout: 5 * time.Second,
-		ReadTimeout:       15 * time.Second,
-		WriteTimeout:      30 * time.Second,
+		ReadTimeout:       30 * time.Second,
+		WriteTimeout:      120 * time.Second,
 		IdleTimeout:       60 * time.Second,
 	}
 

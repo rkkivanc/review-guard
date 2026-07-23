@@ -16,6 +16,7 @@ type PublicConfig struct {
 	Weights                   map[string]float64 `json:"weights"`
 	Flags                     map[string]bool    `json:"flags"`
 	ModelID                   string             `json:"model_id"`
+	LLMURLConfigured          bool               `json:"llm_configured"`
 }
 
 // VersionInfo is returned by GET /version.
