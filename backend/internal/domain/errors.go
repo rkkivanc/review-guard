@@ -11,4 +11,5 @@ var (
 	ErrValidation         = errors.New("validation")
 	ErrForbidden          = errors.New("forbidden")
 	ErrTokenReuse         = errors.New("token reuse detected")
+	ErrLLMUnavailable     = errors.New("llm unavailable")
 )

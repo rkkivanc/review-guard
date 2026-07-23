@@ -4,21 +4,42 @@ import (
 	"context"
 	"net/url"
 	"strings"
+	"time"
 	"unicode/utf8"
 
 	"github.com/google/uuid"
 
 	"github.com/masterfabric/review-guard/mf-backend/internal/domain"
+	"github.com/masterfabric/review-guard/mf-backend/internal/llm"
+	"github.com/masterfabric/review-guard/mf-backend/internal/metrics"
 	"github.com/masterfabric/review-guard/mf-backend/internal/scoring"
 )
 
-// Create stores the review after scoring the provided runs.
+// Create classifies via MLC LLM, scores server-side, then stores the review.
 func (s *ReviewService) Create(ctx context.Context, userID string, in CreateReviewInput) (domain.ReviewDetail, error) {
-	if err := validateCreate(in, s.cfg.ClassificationRuns); err != nil {
+	if err := validateCreateInput(in); err != nil {
 		return domain.ReviewDetail{}, err
 	}
 
-	result := scoring.Score(in.Runs, s.weights(), s.cfg.TrustThreshold)
+	var hints []domain.FeedbackHint
+	if hintRows, err := s.store.ListGradeFeedback(ctx, userID, 8); err == nil {
+		hints = hintRows
+	}
+
+	started := time.Now()
+	classified, err := s.llm.ClassifyThreeTimes(ctx, llm.ClassifyInput{
+		GameName:   strings.TrimSpace(in.GameName),
+		Stars:      in.Stars,
+		ReviewText: strings.TrimSpace(in.ReviewText),
+		Hints:      hints,
+	})
+	metrics.ClassifyDuration.Observe(time.Since(started).Seconds())
+	if err != nil {
+		metrics.ClassifyErrors.Inc()
+		return domain.ReviewDetail{}, err
+	}
+
+	result := scoring.Score(classified.Runs, s.weights(), s.cfg.TrustThreshold)
 	now := s.now().UTC()
 	reviewID := uuid.NewString()
 
@@ -31,12 +52,12 @@ func (s *ReviewService) Create(ctx context.Context, userID string, in CreateRevi
 		TrustScore:  result.TrustScore,
 		Grade:       result.Grade,
 		NeedsReview: result.NeedsReview,
-		LatencyMS:   in.LatencyMS,
+		LatencyMS:   classified.LatencyMS,
 		CreatedAt:   now,
 	}
 
-	runs := make([]domain.Classification, len(in.Runs))
-	for i, payload := range in.Runs {
+	runs := make([]domain.Classification, len(classified.Runs))
+	for i, payload := range classified.Runs {
 		runs[i] = domain.Classification{
 			ID:       uuid.NewString(),
 			ReviewID: reviewID,
@@ -293,7 +314,7 @@ func breakdownRows(reviewID string, result scoring.Result) []domain.ScoreBreakdo
 	return out
 }
 
-func validateCreate(in CreateReviewInput, expectedRuns int) error {
+func validateCreateInput(in CreateReviewInput) error {
 	game := strings.TrimSpace(in.GameName)
 	text := strings.TrimSpace(in.ReviewText)
 	if game == "" || text == "" {
@@ -304,32 +325,6 @@ func validateCreate(in CreateReviewInput, expectedRuns int) error {
 	}
 	if in.Stars < 1 || in.Stars > 10 {
 		return domain.ErrValidation
-	}
-	if expectedRuns <= 0 {
-		expectedRuns = 3
-	}
-	if len(in.Runs) != expectedRuns {
-		return domain.ErrValidation
-	}
-	for _, run := range in.Runs {
-		if err := validateRun(run); err != nil {
-			return err
-		}
-	}
-	if in.LatencyMS < 0 {
-		return domain.ErrValidation
-	}
-	return nil
-}
-
-func validateRun(run scoring.Run) error {
-	for _, lr := range []scoring.LabelResult{run.Consistency, run.Authenticity, run.Experience, run.Usefulness} {
-		if utf8.RuneCountInString(lr.Reason) > MaxReasonLen {
-			return domain.ErrValidation
-		}
-		if utf8.RuneCountInString(lr.Label) > 64 {
-			return domain.ErrValidation
-		}
 	}
 	return nil
 }

@@ -10,6 +10,7 @@ backend/data/
 *.out
 /tmp/
 # Node / Next (later)
+node_modules/
 frontend/node_modules/
 frontend/.next/
 frontend/out/

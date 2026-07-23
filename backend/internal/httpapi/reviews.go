@@ -8,7 +8,6 @@ import (
 	"github.com/go-chi/chi/v5"
 
 	"github.com/masterfabric/review-guard/mf-backend/internal/domain"
-	"github.com/masterfabric/review-guard/mf-backend/internal/scoring"
 	"github.com/masterfabric/review-guard/mf-backend/internal/service"
 )
 
@@ -23,14 +22,12 @@ func NewReviewHandler(svc *service.ReviewService) *ReviewHandler {
 }
 
 type createReviewRequest struct {
-	GameName   string        `json:"game_name"`
-	Stars      int           `json:"stars"`
-	ReviewText string        `json:"review_text"`
-	LatencyMS  int           `json:"latency_ms"`
-	Runs       []scoring.Run `json:"runs"`
+	GameName   string `json:"game_name"`
+	Stars      int    `json:"stars"`
+	ReviewText string `json:"review_text"`
 }
 
-// Create handles POST /reviews.
+// Create handles POST /reviews — backend classifies via MLC LLM then scores.
 func (h *ReviewHandler) Create(w http.ResponseWriter, r *http.Request) {
 	userID, ok := UserIDFromContext(r.Context())
 	if !ok {
@@ -46,8 +43,6 @@ func (h *ReviewHandler) Create(w http.ResponseWriter, r *http.Request) {
 		GameName:   req.GameName,
 		Stars:      req.Stars,
 		ReviewText: req.ReviewText,
-		LatencyMS:  req.LatencyMS,
-		Runs:       req.Runs,
 	})
 	if err != nil {
 		mapAuthErr(w, err)

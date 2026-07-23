@@ -1,5 +1,5 @@
 {
-  "dependencies": {
-    "@mlc-ai/web-llm": "^0.2.84"
-  }
+  "name": "review-guard",
+  "private": true,
+  "description": "ReviewGuard monorepo — use frontend/ and backend/ package managers directly"
 }

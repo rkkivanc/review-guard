@@ -214,8 +214,6 @@ export const reviewsApi = {
       game_name: string;
       stars: number;
       review_text: string;
-      latency_ms: number;
-      runs: ClassificationRunPayload[];
     },
   ) {
     return apiRequest<ReviewDetail>("/reviews", {

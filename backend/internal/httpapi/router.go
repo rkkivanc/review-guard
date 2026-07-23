@@ -1,6 +1,7 @@
 package httpapi
 
 import (
+	"log/slog"
 	"net/http"
 	"time"
 
@@ -10,6 +11,7 @@ import (
 
 	"github.com/masterfabric/review-guard/mf-backend/internal/auth"
 	"github.com/masterfabric/review-guard/mf-backend/internal/config"
+	"github.com/masterfabric/review-guard/mf-backend/internal/metrics"
 	"github.com/masterfabric/review-guard/mf-backend/internal/service"
 )
 
@@ -31,9 +33,11 @@ func NewRouter(deps Dependencies) http.Handler {
 	r.Use(TrustedProxies(deps.Config.TrustedProxies))
 	r.Use(middleware.RequestID)
 	r.Use(RedactSensitiveQuery)
-	r.Use(middleware.Logger)
+	r.Use(JSONRequestLogger)
+	r.Use(metrics.Middleware)
 	r.Use(middleware.Recoverer)
-	r.Use(middleware.Timeout(30 * time.Second))
+	// Classification can wait on MLC LLM (N runs).
+	r.Use(middleware.Timeout(120 * time.Second))
 	r.Use(cors.Handler(cors.Options{
 		AllowedOrigins:   deps.Config.CORSOrigins,
 		AllowedMethods:   []string{"GET", "POST", "PATCH", "DELETE", "OPTIONS"},
@@ -51,6 +55,7 @@ func NewRouter(deps Dependencies) http.Handler {
 	r.Get("/version", cfg.Version)
 	r.Get("/health", health.Live)
 	r.Get("/ready", health.Ready)
+	r.Handle("/metrics", metrics.Handler())
 
 	authLimit := NewRateLimiter(10, time.Minute) // login/register/refresh/logout
 	r.Group(func(ar chi.Router) {
@@ -90,4 +95,22 @@ func NewRouter(deps Dependencies) http.Handler {
 	})
 
 	return r
+}
+
+// JSONRequestLogger emits structured request logs for Grafana/Loki.
+func JSONRequestLogger(next http.Handler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		start := time.Now()
+		ww := middleware.NewWrapResponseWriter(w, r.ProtoMajor)
+		next.ServeHTTP(ww, r)
+		slog.Info("http_request",
+			"method", r.Method,
+			"path", r.URL.Path,
+			"status", ww.Status(),
+			"bytes", ww.BytesWritten(),
+			"duration_ms", time.Since(start).Milliseconds(),
+			"request_id", middleware.GetReqID(r.Context()),
+			"remote", r.RemoteAddr,
+		)
+	})
 }
