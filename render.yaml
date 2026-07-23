@@ -1,0 +1,59 @@
+# ReviewGuard — Render Blueprint
+#
+# Same idea as PromptSentinel: frontend on Vercel, API on Render.
+# Extra for us: MLC LLM must also be on Render (browser WebLLM was removed).
+#
+# Dashboard: https://dashboard.render.com → New → Blueprint → this repo
+# Point the Blueprint at `render.yaml` (repo root).
+#
+# After the first deploy, set on reviewguard-api:
+#   MLC_LLM_URL=https://<reviewguard-mlc-llm-hostname>.onrender.com
+#   CORS_ORIGINS=https://<your-vercel-app>.vercel.app,https://*.vercel.app,http://localhost:3000
+#
+# On Vercel (frontend project), set:
+#   NEXT_PUBLIC_API_URL=https://<reviewguard-api-hostname>.onrender.com
+
+services:
+  - type: web
+    name: reviewguard-mlc-llm
+    runtime: docker
+    plan: free
+    region: frankfurt
+    rootDir: services/mlc-llm
+    dockerfilePath: ./Dockerfile
+    healthCheckPath: /health
+    autoDeployTrigger: commit
+    branch: feature/backend-mlc-llm-infra
+
+  - type: web
+    name: reviewguard-api
+    runtime: docker
+    plan: free
+    region: frankfurt
+    rootDir: backend
+    dockerfilePath: ./Dockerfile
+    healthCheckPath: /health
+    autoDeployTrigger: commit
+    branch: feature/backend-mlc-llm-infra
+    envVars:
+      - key: PORT
+        value: "8080"
+      - key: JWT_SECRET
+        generateValue: true
+      - key: MLC_MODEL_ID
+        value: gemma-2-2b-it-q4f16_1-MLC
+      - key: CLASSIFICATION_RUNS
+        value: "3"
+      - key: CLASSIFICATION_TEMPERATURE
+        value: "0.7"
+      - key: TRUST_THRESHOLD
+        value: "70"
+      - key: DATA_DIR
+        value: /tmp/data
+      - key: TRUSTED_PROXIES
+        value: "0.0.0.0/0"
+      # Set in dashboard after MLC URL is known (free tier: public HTTPS URL).
+      - key: MLC_LLM_URL
+        sync: false
+      - key: CORS_ORIGINS
+        sync: false

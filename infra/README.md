@@ -78,3 +78,19 @@ NodePorts in the sample manifest: API `30080`, Grafana `30300`.
 | `CORS_ORIGINS` | Default `http://localhost:3000` |
 
 If `MLC_LLM_URL` is unset, `POST /reviews` responds with `llm_unavailable`.
+
+## Cloud (Vercel + Render)
+
+Same split as a typical academy stack: **frontend → Vercel**, **API (+ MLC) → Render**.
+
+1. Merge or deploy branch `feature/backend-mlc-llm-infra` (this branch includes Dockerfiles + `render.yaml`).
+2. [Render Dashboard](https://dashboard.render.com) → **New → Blueprint** → select this repo → apply [`render.yaml`](../render.yaml).
+3. Wait until `reviewguard-mlc-llm` and `reviewguard-api` are live.
+4. On **reviewguard-api** → Environment:
+   - `MLC_LLM_URL=https://<mlc-service>.onrender.com`
+   - `CORS_ORIGINS=https://<vercel-app>.vercel.app,https://*.vercel.app,http://localhost:3000`
+5. On **Vercel** (frontend) → Environment:
+   - `NEXT_PUBLIC_API_URL=https://<api-service>.onrender.com`
+6. Redeploy API + frontend. Smoke-test: register → Simulator → classify.
+
+Grafana / gateway / HPA stay local via Docker Compose; they are not required for the cloud path.
