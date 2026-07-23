@@ -26,27 +26,32 @@ export type AuthTokens = {
 
 const CLOUD_API_URL = "https://reviewguard-api.onrender.com";
 
-const BAKED_API_URL =
-  process.env.NEXT_PUBLIC_API_URL?.replace(/\/$/, "") || "";
-
-function isUsableCloudApiUrl(url: string) {
-  try {
-    const host = new URL(url).hostname;
-    // Accept only the current Render API host (reject old fxeo / localhost / typos).
-    return host === "reviewguard-api.onrender.com";
-  } catch {
-    return false;
+/** Ensure scheme so fetch never treats the host as a relative path. */
+function normalizeApiUrl(raw: string | undefined | null): string {
+  let u = (raw || "").trim().replace(/\/$/, "");
+  if (!u) return "";
+  // Host-only values (e.g. reviewguard-api.onrender.com) become relative without this.
+  if (!/^https?:\/\//i.test(u)) {
+    u = `https://${u.replace(/^\/+/, "")}`;
   }
+  // Repair https:/host typos
+  if (u.startsWith("https:/") && !u.startsWith("https://")) {
+    u = `https://${u.slice("https:/".length)}`;
+  }
+  if (u.startsWith("http:/") && !u.startsWith("http://")) {
+    u = `http://${u.slice("http:/".length)}`;
+  }
+  return u.replace(/\/$/, "");
 }
 
-/** Runtime-safe API base (fixes Vercel builds that baked the wrong URL). */
+const BAKED_API_URL = normalizeApiUrl(process.env.NEXT_PUBLIC_API_URL);
+
+/** Runtime-safe API base (never return a scheme-less URL). */
 export function getApiUrl() {
   if (typeof window !== "undefined") {
     const host = window.location.hostname;
+    // Always use the known absolute Render API on Vercel — ignore bad/scheme-less env bakes.
     if (host.endsWith("vercel.app") || host.endsWith("vercel.sh")) {
-      if (isUsableCloudApiUrl(BAKED_API_URL)) {
-        return BAKED_API_URL;
-      }
       return CLOUD_API_URL;
     }
   }
