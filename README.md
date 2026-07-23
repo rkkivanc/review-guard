@@ -1,7 +1,7 @@
 <div align="center">
 
 <a href="https://academy.masterfabric.co">
-  <img src="https://academy.masterfabric.co/masterfabric-logo.svg" width="120" alt="MasterFabric">
+  <img src="https://academy.masterfabric.co/academy-badge.png" width="120" alt="MasterFabric Academy">
 </a>
 
 <p>
