@@ -1,3 +1,19 @@
+<div align="center">
+
+<a href="https://academy.masterfabric.co">
+  <img src="https://academy.masterfabric.co/masterfabric-logo.svg" width="120" alt="MasterFabric">
+</a>
+
+<p>
+  <sub>
+    academy.masterfabric.co is a
+    <a href="https://masterfabric.co">MasterFabric</a>
+    subsidiary.
+  </sub>
+</p>
+
+</div>
+
 # ReviewGuard
 
 ReviewGuard scores how trustworthy a game review looks. Classification runs entirely in the browser; the Go API stores results and recomputes trust on the server.
