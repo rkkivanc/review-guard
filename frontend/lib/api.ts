@@ -24,11 +24,20 @@ export type AuthTokens = {
   user: User;
 };
 
-const API_URL =
-  process.env.NEXT_PUBLIC_API_URL?.replace(/\/$/, "") || "http://localhost:8080";
+const BAKED_API_URL =
+  process.env.NEXT_PUBLIC_API_URL?.replace(/\/$/, "") || "";
 
+/** Runtime-safe API base (fixes Vercel builds that baked localhost by mistake). */
 export function getApiUrl() {
-  return API_URL;
+  if (typeof window !== "undefined") {
+    const host = window.location.hostname;
+    if (host.endsWith("vercel.app") || host.endsWith("vercel.sh")) {
+      if (!BAKED_API_URL || BAKED_API_URL.includes("localhost")) {
+        return "https://reviewguard-api.onrender.com";
+      }
+    }
+  }
+  return BAKED_API_URL || "http://localhost:8080";
 }
 
 export class ApiClientError extends Error {
@@ -54,6 +63,7 @@ export async function apiRequest<T>(
   path: string,
   options: RequestOptions = {},
 ): Promise<T> {
+  const apiUrl = getApiUrl();
   const headers: Record<string, string> = {
     Accept: "application/json",
   };
@@ -64,18 +74,35 @@ export async function apiRequest<T>(
     headers.Authorization = `Bearer ${options.accessToken}`;
   }
 
-  const res = await fetch(`${API_URL}${path}`, {
-    method: options.method || "GET",
-    headers,
-    body: options.body !== undefined ? JSON.stringify(options.body) : undefined,
-    signal: options.signal,
-  });
+  let res: Response;
+  try {
+    res = await fetch(`${apiUrl}${path}`, {
+      method: options.method || "GET",
+      headers,
+      body: options.body !== undefined ? JSON.stringify(options.body) : undefined,
+      signal: options.signal,
+    });
+  } catch {
+    throw new ApiClientError(
+      0,
+      "network_error",
+      `Failed to reach API at ${apiUrl}. Is NEXT_PUBLIC_API_URL set correctly?`,
+    );
+  }
 
+  const text = await res.text();
   let envelope: Envelope<T>;
   try {
-    envelope = (await res.json()) as Envelope<T>;
+    envelope = JSON.parse(text) as Envelope<T>;
   } catch {
-    throw new ApiClientError(res.status, "bad_response", "Server returned a non-JSON response.");
+    const snippet = text.replace(/\s+/g, " ").trim().slice(0, 80);
+    throw new ApiClientError(
+      res.status,
+      "bad_response",
+      `Server returned a non-JSON response from ${apiUrl}${path}` +
+        (snippet ? ` (${snippet})` : "") +
+        ". Try again, or check that the API is running.",
+    );
   }
 
   if (!envelope.success || envelope.data === null) {
