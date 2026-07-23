@@ -24,17 +24,30 @@ export type AuthTokens = {
   user: User;
 };
 
+const CLOUD_API_URL = "https://reviewguard-api.onrender.com";
+
 const BAKED_API_URL =
   process.env.NEXT_PUBLIC_API_URL?.replace(/\/$/, "") || "";
 
-/** Runtime-safe API base (fixes Vercel builds that baked localhost by mistake). */
+function isUsableCloudApiUrl(url: string) {
+  try {
+    const host = new URL(url).hostname;
+    // Accept only the current Render API host (reject old fxeo / localhost / typos).
+    return host === "reviewguard-api.onrender.com";
+  } catch {
+    return false;
+  }
+}
+
+/** Runtime-safe API base (fixes Vercel builds that baked the wrong URL). */
 export function getApiUrl() {
   if (typeof window !== "undefined") {
     const host = window.location.hostname;
     if (host.endsWith("vercel.app") || host.endsWith("vercel.sh")) {
-      if (!BAKED_API_URL || BAKED_API_URL.includes("localhost")) {
-        return "https://reviewguard-api.onrender.com";
+      if (isUsableCloudApiUrl(BAKED_API_URL)) {
+        return BAKED_API_URL;
       }
+      return CLOUD_API_URL;
     }
   }
   return BAKED_API_URL || "http://localhost:8080";
