@@ -38,8 +38,9 @@ func NewClient(baseURL, modelID string, runs int, temperature float64, timeout t
 	if timeout <= 0 {
 		timeout = 60 * time.Second
 	}
+	baseURL = normalizeBaseURL(baseURL)
 	return &Client{
-		baseURL: strings.TrimRight(strings.TrimSpace(baseURL), "/"),
+		baseURL: baseURL,
 		modelID: modelID,
 		httpClient: &http.Client{
 			Timeout: timeout,
@@ -47,6 +48,20 @@ func NewClient(baseURL, modelID string, runs int, temperature float64, timeout t
 		runs: runs,
 		temp: temperature,
 	}
+}
+
+// normalizeBaseURL trims space/trailing slash and repairs common https:/ typos.
+func normalizeBaseURL(raw string) string {
+	u := strings.TrimSpace(raw)
+	u = strings.TrimRight(u, "/")
+	// Users sometimes paste https:/host instead of https://host
+	if strings.HasPrefix(u, "https:/") && !strings.HasPrefix(u, "https://") {
+		u = "https://" + strings.TrimPrefix(u, "https:/")
+	}
+	if strings.HasPrefix(u, "http:/") && !strings.HasPrefix(u, "http://") {
+		u = "http://" + strings.TrimPrefix(u, "http:/")
+	}
+	return u
 }
 
 // Enabled reports whether an LLM base URL is configured.
