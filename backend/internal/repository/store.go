@@ -7,29 +7,27 @@ import (
 	"github.com/masterfabric/review-guard/mf-backend/internal/domain"
 )
 
-// Store is the persistence boundary shared by memory and Postgres implementations.
+// Store is the composite persistence boundary (memory + Postgres).
+// Prefer injecting the narrower consumer interfaces defined in service packages.
 type Store interface {
 	Ping(ctx context.Context) error
 	Name() string
+	Close() error
 
-	// Users
 	CreateUser(ctx context.Context, user domain.User) (domain.User, error)
 	GetUserByEmail(ctx context.Context, email string) (domain.User, error)
 	GetUserByID(ctx context.Context, id string) (domain.User, error)
 	UpdateUser(ctx context.Context, user domain.User) (domain.User, error)
 	UpdatePassword(ctx context.Context, userID, passwordHash string) error
 
-	// Refresh tokens / sessions
 	CreateRefreshToken(ctx context.Context, token domain.RefreshToken) (domain.RefreshToken, error)
 	GetRefreshTokenByHash(ctx context.Context, hash string) (domain.RefreshToken, error)
 	RevokeRefreshToken(ctx context.Context, id string, at time.Time) error
 	RevokeUserRefreshTokens(ctx context.Context, userID string, at time.Time, exceptID string) error
 	ListUserRefreshTokens(ctx context.Context, userID string) ([]domain.RefreshToken, error)
 
-	// Games
 	ListUserGames(ctx context.Context, userID string) ([]string, error)
 
-	// Reviews
 	CreateReview(ctx context.Context, review domain.Review, runs []domain.Classification, breakdown []domain.ScoreBreakdownRow) (domain.Review, error)
 	GetReviewForUser(ctx context.Context, userID, reviewID string) (domain.Review, error)
 	ListReviews(ctx context.Context, userID string, filter domain.ReviewListFilter) ([]domain.Review, int, error)
@@ -41,4 +39,7 @@ type Store interface {
 	ListReviewsForGame(ctx context.Context, userID, gameName string) ([]domain.Review, error)
 	UpsertGradeFeedback(ctx context.Context, userID, reviewID string, fb domain.ClassificationFeedback) (domain.Review, error)
 	ListGradeFeedback(ctx context.Context, userID string, limit int) ([]domain.FeedbackHint, error)
+
+	// BuildAnalytics aggregates dashboard metrics without N+1 round-trips.
+	BuildAnalytics(ctx context.Context, userID string, threshold float64) (domain.Analytics, error)
 }

@@ -4,36 +4,18 @@ import (
 	"context"
 	"errors"
 	"strings"
-	"time"
 
 	"github.com/google/uuid"
 	"golang.org/x/crypto/bcrypt"
 
 	"github.com/masterfabric/review-guard/mf-backend/internal/auth"
 	"github.com/masterfabric/review-guard/mf-backend/internal/domain"
-	"github.com/masterfabric/review-guard/mf-backend/internal/repository"
 )
 
 const (
 	minPasswordLen = 8
 	bcryptCost     = bcrypt.DefaultCost
 )
-
-// AuthService implements registration, login, session rotation, and profile updates.
-type AuthService struct {
-	store  repository.Store
-	tokens *auth.TokenManager
-	now    func() time.Time
-}
-
-// NewAuthService wires the auth use cases.
-func NewAuthService(store repository.Store, tokens *auth.TokenManager) *AuthService {
-	return &AuthService{
-		store:  store,
-		tokens: tokens,
-		now:    time.Now,
-	}
-}
 
 // Register creates a user and returns a fresh session.
 func (s *AuthService) Register(ctx context.Context, email, name, password string) (domain.AuthTokens, error) {

@@ -5,17 +5,22 @@ import (
 
 	"github.com/masterfabric/review-guard/mf-backend/internal/config"
 	"github.com/masterfabric/review-guard/mf-backend/internal/domain"
-	"github.com/masterfabric/review-guard/mf-backend/internal/repository"
 )
+
+// HealthStore is the readiness/liveness persistence surface.
+type HealthStore interface {
+	Ping(ctx context.Context) error
+	Name() string
+}
 
 // HealthService answers liveness and readiness probes.
 type HealthService struct {
 	cfg   config.Config
-	store repository.Store
+	store HealthStore
 }
 
 // NewHealthService wires config + store into the health use cases.
-func NewHealthService(cfg config.Config, store repository.Store) *HealthService {
+func NewHealthService(cfg config.Config, store HealthStore) *HealthService {
 	return &HealthService{cfg: cfg, store: store}
 }
 

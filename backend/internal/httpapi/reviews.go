@@ -74,17 +74,12 @@ func (h *ReviewHandler) List(w http.ResponseWriter, r *http.Request) {
 		b := strings.EqualFold(v, "true") || v == "1"
 		filter.NeedsReview = &b
 	}
-	items, total, err := h.svc.List(r.Context(), userID, filter)
+	items, err := h.svc.List(r.Context(), userID, filter)
 	if err != nil {
 		mapAuthErr(w, err)
 		return
 	}
-	WriteOK(w, http.StatusOK, map[string]any{
-		"items":  items,
-		"total":  total,
-		"limit":  filter.Limit,
-		"offset": filter.Offset,
-	})
+	WriteOK(w, http.StatusOK, items)
 }
 
 // Get handles GET /reviews/{id}.
@@ -113,7 +108,7 @@ func (h *ReviewHandler) Delete(w http.ResponseWriter, r *http.Request) {
 		mapAuthErr(w, err)
 		return
 	}
-	WriteOK(w, http.StatusOK, map[string]bool{"deleted": true})
+	WriteOK(w, http.StatusOK, service.DeletedResponse{Deleted: true})
 }
 
 // Rescore handles POST /reviews/{id}/rescore.
@@ -223,7 +218,7 @@ func (h *ReviewHandler) FeedbackHints(w http.ResponseWriter, r *http.Request) {
 		mapAuthErr(w, err)
 		return
 	}
-	WriteOK(w, http.StatusOK, map[string]any{"hints": hints})
+	WriteOK(w, http.StatusOK, hints)
 }
 
 func queryInt(raw string, fallback int) int {

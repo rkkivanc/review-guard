@@ -108,7 +108,7 @@ func (h *AuthHandler) Logout(w http.ResponseWriter, r *http.Request) {
 		mapAuthErr(w, err)
 		return
 	}
-	WriteOK(w, http.StatusOK, map[string]bool{"logged_out": true})
+	WriteOK(w, http.StatusOK, service.LogoutResponse{LoggedOut: true})
 }
 
 // Me handles GET /auth/me.
@@ -164,7 +164,7 @@ func (h *AuthHandler) ChangePassword(w http.ResponseWriter, r *http.Request) {
 		mapAuthErr(w, err)
 		return
 	}
-	WriteOK(w, http.StatusOK, map[string]bool{"password_changed": true})
+	WriteOK(w, http.StatusOK, service.PasswordChangedResponse{PasswordChanged: true})
 }
 
 // Sessions handles GET /auth/sessions.
@@ -184,7 +184,7 @@ func (h *AuthHandler) Sessions(w http.ResponseWriter, r *http.Request) {
 		mapAuthErr(w, err)
 		return
 	}
-	WriteOK(w, http.StatusOK, map[string]any{"sessions": sessions})
+	WriteOK(w, http.StatusOK, service.SessionsResponse{Sessions: sessions})
 }
 
 // Games handles GET /games (auth-scoped).
@@ -199,7 +199,7 @@ func (h *AuthHandler) Games(w http.ResponseWriter, r *http.Request) {
 		mapAuthErr(w, err)
 		return
 	}
-	WriteOK(w, http.StatusOK, map[string]any{"games": games})
+	WriteOK(w, http.StatusOK, service.GamesResponse{Games: games})
 }
 
 func decodeJSON(r *http.Request, dst any) error {

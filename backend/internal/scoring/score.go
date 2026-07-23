@@ -66,6 +66,7 @@ type Result struct {
 }
 
 // Score recomputes trust from N classification runs. Client-supplied trust is ignored by design.
+// Hot path avoids closures and heap maps for the fixed 4 dimensions.
 func Score(runs []Run, weights Weights, trustThreshold float64) Result {
 	if len(runs) == 0 {
 		return Result{
@@ -82,34 +83,26 @@ func Score(runs []Run, weights Weights, trustThreshold float64) Result {
 		trustThreshold = 70
 	}
 
-	dims := []struct {
+	type dimSpec struct {
 		name string
-		pick func(Run) LabelResult
 		w    float64
-	}{
-		{DimAuthenticity, func(r Run) LabelResult { return r.Authenticity }, weights.Authenticity},
-		{DimExperience, func(r Run) LabelResult { return r.Experience }, weights.Experience},
-		{DimConsistency, func(r Run) LabelResult { return r.Consistency }, weights.Consistency},
-		{DimUsefulness, func(r Run) LabelResult { return r.Usefulness }, weights.Usefulness},
+	}
+	dims := [4]dimSpec{
+		{DimAuthenticity, weights.Authenticity},
+		{DimExperience, weights.Experience},
+		{DimConsistency, weights.Consistency},
+		{DimUsefulness, weights.Usefulness},
 	}
 
-	breakdown := make([]DimensionScore, 0, len(dims))
+	breakdown := make([]DimensionScore, 4)
 	var weightedSum, weightTotal float64
 	hardDisagreement := false
+	var finals [4]string
 
-	finals := map[string]string{}
-
-	for _, d := range dims {
-		samples := make([]LabelResult, 0, len(runs))
-		for _, run := range runs {
-			lr := d.pick(run)
-			lr.Label = normalizeLabel(lr.Label)
-			lr.Confidence = clamp01(lr.Confidence)
-			samples = append(samples, lr)
-		}
-		ds := scoreDimension(d.name, samples)
-		breakdown = append(breakdown, ds)
-		finals[d.name] = ds.FinalLabel
+	for i, d := range dims {
+		ds := scoreDimension(d.name, runs, i)
+		breakdown[i] = ds
+		finals[i] = ds.FinalLabel
 		if ds.Agreement < 0.5 {
 			hardDisagreement = true
 		}
@@ -141,41 +134,84 @@ func Score(runs []Run, weights Weights, trustThreshold float64) Result {
 	}
 }
 
-func scoreDimension(name string, samples []LabelResult) DimensionScore {
-	n := float64(len(samples))
-	counts := map[string]int{}
-	confSum := map[string]float64{}
-	maxConf := map[string]float64{}
+func pickDim(run Run, dimIdx int) LabelResult {
+	switch dimIdx {
+	case 0:
+		return run.Authenticity
+	case 1:
+		return run.Experience
+	case 2:
+		return run.Consistency
+	default:
+		return run.Usefulness
+	}
+}
 
-	for _, s := range samples {
-		label := s.Label
+func scoreDimension(name string, runs []Run, dimIdx int) DimensionScore {
+	n := float64(len(runs))
+	// Fixed small label cardinality — stack arrays beat maps on this hot path.
+	type bucket struct {
+		label   string
+		count   int
+		confSum float64
+		maxConf float64
+	}
+	var buckets [8]bucket
+	nBuckets := 0
+
+	findOrAdd := func(label string) *bucket {
+		for i := 0; i < nBuckets; i++ {
+			if buckets[i].label == label {
+				return &buckets[i]
+			}
+		}
+		if nBuckets >= len(buckets) {
+			// Extremely unlikely with enum labels; collapse into last slot.
+			b := &buckets[len(buckets)-1]
+			b.label = label
+			return b
+		}
+		buckets[nBuckets].label = label
+		nBuckets++
+		return &buckets[nBuckets-1]
+	}
+
+	for _, run := range runs {
+		lr := pickDim(run, dimIdx)
+		label := normalizeLabel(lr.Label)
 		if label == "" {
 			label = "unknown"
 		}
-		counts[label]++
-		confSum[label] += s.Confidence
-		if s.Confidence > maxConf[label] {
-			maxConf[label] = s.Confidence
+		conf := clamp01(lr.Confidence)
+		b := findOrAdd(label)
+		b.count++
+		b.confSum += conf
+		if conf > b.maxConf {
+			b.maxConf = conf
 		}
 	}
 
-	// Majority label; ties → highest single-run confidence among tied labels.
-	bestLabel := ""
+	bestIdx := -1
 	bestCount := -1
 	bestTieConf := -1.0
-	for label, c := range counts {
-		if c > bestCount || (c == bestCount && maxConf[label] > bestTieConf) {
-			bestCount = c
-			bestLabel = label
-			bestTieConf = maxConf[label]
+	for i := 0; i < nBuckets; i++ {
+		b := &buckets[i]
+		if b.count > bestCount || (b.count == bestCount && b.maxConf > bestTieConf) {
+			bestCount = b.count
+			bestIdx = i
+			bestTieConf = b.maxConf
 		}
 	}
 
-	agreement := float64(bestCount) / n
+	bestLabel := ""
 	avgConf := 0.0
-	if bestCount > 0 {
-		avgConf = confSum[bestLabel] / float64(bestCount)
+	if bestIdx >= 0 {
+		bestLabel = buckets[bestIdx].label
+		if bestCount > 0 {
+			avgConf = buckets[bestIdx].confSum / float64(bestCount)
+		}
 	}
+	agreement := float64(bestCount) / n
 	dimScore := 0.5*agreement + 0.5*avgConf
 
 	return DimensionScore{
@@ -187,14 +223,13 @@ func scoreDimension(name string, samples []LabelResult) DimensionScore {
 	}
 }
 
-func coherencePenalty(finals map[string]string) float64 {
+func coherencePenalty(finals [4]string) float64 {
+	// indexes: 0=auth, 1=exp, 2=cons, 3=use
 	penalty := 0.0
-	if finals[DimExperience] == "experience_based" && finals[DimAuthenticity] == "bot" {
+	if finals[1] == "experience_based" && finals[0] == "bot" {
 		penalty += 0.15
 	}
-	if finals[DimAuthenticity] == "genuine" &&
-		finals[DimConsistency] == "mismatched" &&
-		finals[DimUsefulness] == "empty" {
+	if finals[0] == "genuine" && finals[2] == "mismatched" && finals[3] == "empty" {
 		penalty += 0.10
 	}
 	return penalty

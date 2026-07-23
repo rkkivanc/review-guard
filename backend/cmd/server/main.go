@@ -32,6 +32,7 @@ func main() {
 		slog.Info("JWT_SECRET unset; using persisted secret in data dir", "dir", cfg.DataDir)
 	}
 
+	ctx := context.Background()
 	var store repository.Store
 	if cfg.UsingMemoryStore() {
 		ms, err := repository.OpenMemoryStore(cfg.DataDir)
@@ -42,14 +43,19 @@ func main() {
 		slog.Info("DATABASE_URL empty; using file-backed memory repository", "dir", cfg.DataDir)
 		store = ms
 	} else {
-		slog.Warn("DATABASE_URL set but Postgres repository not wired yet; using file-backed memory repository")
-		ms, err := repository.OpenMemoryStore(cfg.DataDir)
+		ps, err := repository.OpenPostgresStore(ctx, cfg.DatabaseURL)
 		if err != nil {
-			slog.Error("open memory store", "err", err)
+			slog.Error("open postgres store", "err", err)
 			os.Exit(1)
 		}
-		store = ms
+		slog.Info("using postgres repository")
+		store = ps
 	}
+	defer func() {
+		if err := store.Close(); err != nil {
+			slog.Error("store close", "err", err)
+		}
+	}()
 
 	tokens, err := auth.NewTokenManager(cfg.JWTSecret, cfg.AccessTokenTTL, cfg.RefreshTokenTTL)
 	if err != nil {
@@ -92,9 +98,9 @@ func main() {
 	signal.Notify(stop, syscall.SIGINT, syscall.SIGTERM)
 	<-stop
 
-	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	shutdownCtx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancel()
-	if err := srv.Shutdown(ctx); err != nil {
+	if err := srv.Shutdown(shutdownCtx); err != nil {
 		slog.Error("graceful shutdown failed", "err", err)
 		os.Exit(1)
 	}

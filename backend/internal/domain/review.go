@@ -1,7 +1,6 @@
 package domain
 
 import (
-	"fmt"
 	"time"
 
 	"github.com/masterfabric/review-guard/mf-backend/internal/scoring"
@@ -57,7 +56,8 @@ func CorrectnessFromFeedback(fb ClassificationFeedback) (score float64, label st
 	if fb.Usefulness.Correct {
 		ok++
 	}
-	return float64(ok) / 4.0 * 100, fmt.Sprintf("%d/4", ok)
+	labels := [...]string{"0/4", "1/4", "2/4", "3/4", "4/4"}
+	return float64(ok) / 4.0 * 100, labels[ok]
 }
 
 // FeedbackHint is a compact row used to improve later Gemma prompts.

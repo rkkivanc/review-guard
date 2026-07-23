@@ -4,36 +4,12 @@ import (
 	"context"
 	"net/url"
 	"strings"
-	"time"
 
 	"github.com/google/uuid"
 
-	"github.com/masterfabric/review-guard/mf-backend/internal/config"
 	"github.com/masterfabric/review-guard/mf-backend/internal/domain"
-	"github.com/masterfabric/review-guard/mf-backend/internal/repository"
 	"github.com/masterfabric/review-guard/mf-backend/internal/scoring"
 )
-
-// ReviewService persists reviews and always recomputes trust server-side.
-type ReviewService struct {
-	store repository.Store
-	cfg   config.Config
-	now   func() time.Time
-}
-
-// NewReviewService constructs a ReviewService.
-func NewReviewService(store repository.Store, cfg config.Config) *ReviewService {
-	return &ReviewService{store: store, cfg: cfg, now: time.Now}
-}
-
-// CreateReviewInput is the client payload for POST /reviews (no trust fields).
-type CreateReviewInput struct {
-	GameName   string
-	Stars      int
-	ReviewText string
-	LatencyMS  int
-	Runs       []scoring.Run
-}
 
 // Create stores the review after scoring the provided runs.
 func (s *ReviewService) Create(ctx context.Context, userID string, in CreateReviewInput) (domain.ReviewDetail, error) {
@@ -112,8 +88,25 @@ func (s *ReviewService) Get(ctx context.Context, userID, reviewID string) (domai
 }
 
 // List returns a filtered page of reviews.
-func (s *ReviewService) List(ctx context.Context, userID string, filter domain.ReviewListFilter) ([]domain.Review, int, error) {
-	return s.store.ListReviews(ctx, userID, filter)
+func (s *ReviewService) List(ctx context.Context, userID string, filter domain.ReviewListFilter) (ReviewListResponse, error) {
+	items, total, err := s.store.ListReviews(ctx, userID, filter)
+	if err != nil {
+		return ReviewListResponse{}, err
+	}
+	limit := filter.Limit
+	if limit <= 0 {
+		limit = 50
+	}
+	offset := filter.Offset
+	if offset < 0 {
+		offset = 0
+	}
+	return ReviewListResponse{
+		Items:  items,
+		Total:  total,
+		Limit:  limit,
+		Offset: offset,
+	}, nil
 }
 
 // Delete removes a review owned by the user.
@@ -153,19 +146,19 @@ func (s *ReviewService) Rescore(ctx context.Context, userID, reviewID string) (d
 }
 
 // ScoreOnly returns the breakdown for one review.
-func (s *ReviewService) ScoreOnly(ctx context.Context, userID, reviewID string) (map[string]any, error) {
+func (s *ReviewService) ScoreOnly(ctx context.Context, userID, reviewID string) (ScoreResponse, error) {
 	detail, err := s.Get(ctx, userID, reviewID)
 	if err != nil {
-		return nil, err
+		return ScoreResponse{}, err
 	}
-	return map[string]any{
-		"review_id":    detail.Review.ID,
-		"trust_score":  detail.Review.TrustScore,
-		"grade":        detail.Review.Grade,
-		"needs_review": detail.Review.NeedsReview,
-		"composite":    detail.Composite,
-		"penalty":      detail.Penalty,
-		"breakdown":    detail.Breakdown,
+	return ScoreResponse{
+		ReviewID:    detail.Review.ID,
+		TrustScore:  detail.Review.TrustScore,
+		Grade:       detail.Review.Grade,
+		NeedsReview: detail.Review.NeedsReview,
+		Composite:   detail.Composite,
+		Penalty:     detail.Penalty,
+		Breakdown:   detail.Breakdown,
 	}, nil
 }
 
@@ -174,51 +167,7 @@ func (s *ReviewService) Analytics(ctx context.Context, userID string, threshold 
 	if threshold <= 0 {
 		threshold = s.cfg.TrustThreshold
 	}
-	reviews, err := s.store.ListAllReviewsForUser(ctx, userID)
-	if err != nil {
-		return domain.Analytics{}, err
-	}
-
-	out := domain.Analytics{
-		TotalReviews:  len(reviews),
-		GradeCounts:   map[string]int{"A": 0, "B": 0, "C": 0, "D": 0, "F": 0},
-		DimensionDist: map[string]map[string]int{},
-		Threshold:     threshold,
-	}
-
-	var trustSum, corrSum float64
-	for _, r := range reviews {
-		trustSum += r.TrustScore
-		if r.NeedsReview {
-			out.FlaggedCount++
-		}
-		if r.CorrectnessScore != nil {
-			out.FeedbackScoredCount++
-			corrSum += *r.CorrectnessScore
-		}
-		out.GradeCounts[r.Grade]++
-		if r.TrustScore < threshold {
-			out.WouldFlagAtThreshold++
-		}
-
-		bd, err := s.store.GetScoreBreakdown(ctx, r.ID)
-		if err != nil {
-			continue
-		}
-		for _, row := range bd {
-			if out.DimensionDist[row.Dimension] == nil {
-				out.DimensionDist[row.Dimension] = map[string]int{}
-			}
-			out.DimensionDist[row.Dimension][row.FinalLabel]++
-		}
-	}
-	if len(reviews) > 0 {
-		out.AvgTrustScore = trustSum / float64(len(reviews))
-	}
-	if out.FeedbackScoredCount > 0 {
-		out.AvgCorrectnessScore = corrSum / float64(out.FeedbackScoredCount)
-	}
-	return out, nil
+	return s.store.BuildAnalytics(ctx, userID, threshold)
 }
 
 // GameAverage returns raw vs trust-weighted averages for one game.
@@ -277,8 +226,12 @@ func (s *ReviewService) SubmitFeedback(ctx context.Context, userID, reviewID str
 }
 
 // FeedbackHints returns recent human label corrections for improving the in-browser prompt.
-func (s *ReviewService) FeedbackHints(ctx context.Context, userID string, limit int) ([]domain.FeedbackHint, error) {
-	return s.store.ListGradeFeedback(ctx, userID, limit)
+func (s *ReviewService) FeedbackHints(ctx context.Context, userID string, limit int) (FeedbackHintsResponse, error) {
+	hints, err := s.store.ListGradeFeedback(ctx, userID, limit)
+	if err != nil {
+		return FeedbackHintsResponse{}, err
+	}
+	return FeedbackHintsResponse{Hints: hints}, nil
 }
 
 func normalizeJudgment(j domain.DimJudgment, allowed []string) (domain.DimJudgment, error) {

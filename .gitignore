@@ -20,3 +20,5 @@ frontend/out/
 .cursor/
 PROJECT_CONTEXT.md
 PROJECT_CONTEXT.MD
+.vercel
+.env*
