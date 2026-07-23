@@ -68,12 +68,33 @@ func isUniqueViolation(err error) bool {
 	return errors.As(err, &pgErr) && pgErr.Code == "23505"
 }
 
+func (p *PostgresStore) GetUserByEmail(ctx context.Context, email string) (domain.User, error) {
+	return p.scanUser(ctx, `
+		SELECT id, email, name, password_hash, token_version, created_at
+		FROM users WHERE email=$1`, strings.ToLower(strings.TrimSpace(email)))
+}
+
+func (p *PostgresStore) GetUserByID(ctx context.Context, id string) (domain.User, error) {
+	return p.scanUser(ctx, `
+		SELECT id, email, name, password_hash, token_version, created_at
+		FROM users WHERE id=$1`, id)
+}
+
+func (p *PostgresStore) scanUser(ctx context.Context, q string, arg any) (domain.User, error) {
+	var u domain.User
+	err := p.pool.QueryRow(ctx, q, arg).Scan(&u.ID, &u.Email, &u.Name, &u.PasswordHash, &u.TokenVersion, &u.CreatedAt)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return domain.User{}, domain.ErrNotFound
+	}
+	return u, err
+}
+
 func (p *PostgresStore) CreateUser(ctx context.Context, user domain.User) (domain.User, error) {
 	user.Email = strings.ToLower(strings.TrimSpace(user.Email))
 	_, err := p.pool.Exec(ctx, `
-		INSERT INTO users (id, email, name, password_hash, created_at)
-		VALUES ($1, $2, $3, $4, $5)`,
-		user.ID, user.Email, user.Name, user.PasswordHash, user.CreatedAt)
+		INSERT INTO users (id, email, name, password_hash, token_version, created_at)
+		VALUES ($1, $2, $3, $4, $5, $6)`,
+		user.ID, user.Email, user.Name, user.PasswordHash, user.TokenVersion, user.CreatedAt)
 	if err != nil {
 		if isUniqueViolation(err) {
 			return domain.User{}, domain.ErrConflict
@@ -81,27 +102,6 @@ func (p *PostgresStore) CreateUser(ctx context.Context, user domain.User) (domai
 		return domain.User{}, err
 	}
 	return user, nil
-}
-
-func (p *PostgresStore) GetUserByEmail(ctx context.Context, email string) (domain.User, error) {
-	return p.scanUser(ctx, `
-		SELECT id, email, name, password_hash, created_at
-		FROM users WHERE email=$1`, strings.ToLower(strings.TrimSpace(email)))
-}
-
-func (p *PostgresStore) GetUserByID(ctx context.Context, id string) (domain.User, error) {
-	return p.scanUser(ctx, `
-		SELECT id, email, name, password_hash, created_at
-		FROM users WHERE id=$1`, id)
-}
-
-func (p *PostgresStore) scanUser(ctx context.Context, q string, arg any) (domain.User, error) {
-	var u domain.User
-	err := p.pool.QueryRow(ctx, q, arg).Scan(&u.ID, &u.Email, &u.Name, &u.PasswordHash, &u.CreatedAt)
-	if errors.Is(err, pgx.ErrNoRows) {
-		return domain.User{}, domain.ErrNotFound
-	}
-	return u, err
 }
 
 func (p *PostgresStore) UpdateUser(ctx context.Context, user domain.User) (domain.User, error) {
@@ -150,6 +150,42 @@ func (p *PostgresStore) GetRefreshTokenByHash(ctx context.Context, hash string) 
 		return domain.RefreshToken{}, domain.ErrNotFound
 	}
 	return t, err
+}
+
+func (p *PostgresStore) ConsumeRefreshToken(ctx context.Context, hash string, at time.Time) (domain.RefreshToken, error) {
+	var t domain.RefreshToken
+	err := p.pool.QueryRow(ctx, `
+		UPDATE refresh_tokens
+		SET revoked_at=$2
+		WHERE token_hash=$1 AND revoked_at IS NULL AND expires_at > $2
+		RETURNING id, user_id, token_hash, expires_at, revoked_at, created_at`, hash, at).
+		Scan(&t.ID, &t.UserID, &t.TokenHash, &t.ExpiresAt, &t.RevokedAt, &t.CreatedAt)
+	if err == nil {
+		return t, nil
+	}
+	if !errors.Is(err, pgx.ErrNoRows) {
+		return domain.RefreshToken{}, err
+	}
+	// Token missing, already revoked, or expired.
+	existing, getErr := p.GetRefreshTokenByHash(ctx, hash)
+	if errors.Is(getErr, domain.ErrNotFound) {
+		return domain.RefreshToken{}, domain.ErrNotFound
+	}
+	if getErr != nil {
+		return domain.RefreshToken{}, getErr
+	}
+	return existing, domain.ErrTokenReuse
+}
+
+func (p *PostgresStore) BumpTokenVersion(ctx context.Context, userID string) (int64, error) {
+	var v int64
+	err := p.pool.QueryRow(ctx, `
+		UPDATE users SET token_version = token_version + 1
+		WHERE id=$1 RETURNING token_version`, userID).Scan(&v)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return 0, domain.ErrNotFound
+	}
+	return v, err
 }
 
 func (p *PostgresStore) RevokeRefreshToken(ctx context.Context, id string, at time.Time) error {
@@ -304,9 +340,15 @@ func (p *PostgresStore) ListReviews(ctx context.Context, userID string, filter d
 	if limit <= 0 {
 		limit = 50
 	}
+	if limit > 100 {
+		limit = 100
+	}
 	offset := filter.Offset
 	if offset < 0 {
 		offset = 0
+	}
+	if offset > 10_000 {
+		offset = 10_000
 	}
 
 	where := []string{"user_id=$1"}

@@ -18,6 +18,7 @@ type Config struct {
 	DataDir         string
 	JWTSecret       string
 	CORSOrigins     []string
+	TrustedProxies  []string
 	AccessTokenTTL  time.Duration
 	RefreshTokenTTL time.Duration
 	Version         string
@@ -45,6 +46,7 @@ func Load() Config {
 		DataDir:         envOr("DATA_DIR", "data"),
 		JWTSecret:       os.Getenv("JWT_SECRET"),
 		CORSOrigins:     splitCSV(envOr("CORS_ORIGINS", "http://localhost:3000")),
+		TrustedProxies:  splitCSV(os.Getenv("TRUSTED_PROXIES")),
 		AccessTokenTTL:  envDuration("ACCESS_TOKEN_TTL", 15*time.Minute),
 		RefreshTokenTTL: envDuration("REFRESH_TOKEN_TTL", 7*24*time.Hour),
 		Version:         envOr("APP_VERSION", "0.1.0-dev"),

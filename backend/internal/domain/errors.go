@@ -10,4 +10,5 @@ var (
 	ErrUnauthorized       = errors.New("unauthorized")
 	ErrValidation         = errors.New("validation")
 	ErrForbidden          = errors.New("forbidden")
+	ErrTokenReuse         = errors.New("token reuse detected")
 )

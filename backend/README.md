@@ -42,3 +42,11 @@ Reviews + decision scoring (§5 #14–21) — trust is **always recomputed serve
 Pure scoring logic lives in `internal/scoring` (unit-tested). Client-supplied trust is ignored.
 
 Set `JWT_SECRET` in production. Local memory mode persists a secret under `DATA_DIR/jwt.secret` if unset.
+
+Security hardening:
+- Auth routes rate-limited (10/min/IP)
+- Access JWT carries `tv` (token_version); password change / refresh reuse bumps it
+- Refresh rotation is atomic (`ConsumeRefreshToken`); reuse revokes all sessions
+- Pagination capped (`limit≤100`, `offset≤10000`); body size limits on auth/review JSON
+- `X-Refresh-Token` header only (no query-string secrets); security headers enabled
+- Optional `TRUSTED_PROXIES` CIDR list for `X-Forwarded-For`

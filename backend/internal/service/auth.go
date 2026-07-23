@@ -3,7 +3,9 @@ package service
 import (
 	"context"
 	"errors"
+	"log/slog"
 	"strings"
+	"unicode/utf8"
 
 	"github.com/google/uuid"
 	"golang.org/x/crypto/bcrypt"
@@ -14,9 +16,22 @@ import (
 
 const (
 	minPasswordLen = 8
+	maxPasswordLen = 72 // bcrypt hard limit
+	maxNameLen     = 100
+	maxEmailLen    = 254
 	bcryptCost     = bcrypt.DefaultCost
 )
 
+// registerDummyHash is a real bcrypt hash used only for timing padding.
+var registerDummyHash []byte
+
+func init() {
+	h, err := bcrypt.GenerateFromPassword([]byte("timing-pad-not-a-real-password"), bcryptCost)
+	if err != nil {
+		panic("bcrypt dummy hash: " + err.Error())
+	}
+	registerDummyHash = h
+}
 // Register creates a user and returns a fresh session.
 func (s *AuthService) Register(ctx context.Context, email, name, password string) (domain.AuthTokens, error) {
 	email = normalizeEmail(email)
@@ -35,10 +50,17 @@ func (s *AuthService) Register(ctx context.Context, email, name, password string
 		Email:        email,
 		Name:         name,
 		PasswordHash: string(hash),
+		TokenVersion: 0,
 		CreatedAt:    s.now().UTC(),
 	}
 	created, err := s.store.CreateUser(ctx, user)
 	if err != nil {
+		if errors.Is(err, domain.ErrConflict) {
+			// Mitigate email enumeration + timing oracle.
+			_ = bcrypt.CompareHashAndPassword(registerDummyHash, []byte(password))
+			slog.Info("register conflict suppressed", "email_domain", emailDomain(email))
+			return domain.AuthTokens{}, domain.ErrValidation
+		}
 		return domain.AuthTokens{}, err
 	}
 	return s.issueSession(ctx, created)
@@ -47,13 +69,14 @@ func (s *AuthService) Register(ctx context.Context, email, name, password string
 // Login verifies credentials and returns a fresh session.
 func (s *AuthService) Login(ctx context.Context, email, password string) (domain.AuthTokens, error) {
 	email = normalizeEmail(email)
-	if email == "" || password == "" {
+	if err := validatePasswordLen(password); err != nil || email == "" {
 		return domain.AuthTokens{}, domain.ErrValidation
 	}
 
 	user, err := s.store.GetUserByEmail(ctx, email)
 	if err != nil {
 		if errors.Is(err, domain.ErrNotFound) {
+			_ = bcrypt.CompareHashAndPassword(registerDummyHash, []byte(password))
 			return domain.AuthTokens{}, domain.ErrInvalidCredentials
 		}
 		return domain.AuthTokens{}, err
@@ -71,22 +94,17 @@ func (s *AuthService) Refresh(ctx context.Context, refreshRaw string) (domain.Au
 		return domain.AuthTokens{}, domain.ErrUnauthorized
 	}
 
-	stored, err := s.store.GetRefreshTokenByHash(ctx, auth.HashRefreshToken(refreshRaw))
+	now := s.now().UTC()
+	stored, err := s.store.ConsumeRefreshToken(ctx, auth.HashRefreshToken(refreshRaw), now)
 	if err != nil {
+		if errors.Is(err, domain.ErrTokenReuse) {
+			_ = s.store.RevokeUserRefreshTokens(ctx, stored.UserID, now, "")
+			_, _ = s.store.BumpTokenVersion(ctx, stored.UserID)
+			return domain.AuthTokens{}, domain.ErrUnauthorized
+		}
 		if errors.Is(err, domain.ErrNotFound) {
 			return domain.AuthTokens{}, domain.ErrUnauthorized
 		}
-		return domain.AuthTokens{}, err
-	}
-
-	now := s.now().UTC()
-	if stored.RevokedAt != nil || now.After(stored.ExpiresAt) {
-		// Reuse of a revoked/expired token — revoke all for this user (theft detection).
-		_ = s.store.RevokeUserRefreshTokens(ctx, stored.UserID, now, "")
-		return domain.AuthTokens{}, domain.ErrUnauthorized
-	}
-
-	if err := s.store.RevokeRefreshToken(ctx, stored.ID, now); err != nil {
 		return domain.AuthTokens{}, err
 	}
 
@@ -126,23 +144,26 @@ func (s *AuthService) UpdateMe(ctx context.Context, userID, email, name string) 
 	}
 	if email != "" {
 		user.Email = normalizeEmail(email)
-		if user.Email == "" || !strings.Contains(user.Email, "@") {
+		if user.Email == "" || !strings.Contains(user.Email, "@") || utf8.RuneCountInString(user.Email) > maxEmailLen {
 			return domain.User{}, domain.ErrValidation
 		}
 	}
 	if name != "" {
 		user.Name = strings.TrimSpace(name)
-		if user.Name == "" {
+		if user.Name == "" || utf8.RuneCountInString(user.Name) > maxNameLen {
 			return domain.User{}, domain.ErrValidation
 		}
 	}
 	return s.store.UpdateUser(ctx, user)
 }
 
-// ChangePassword updates the password and revokes other sessions.
+// ChangePassword updates the password, bumps token version, and revokes other sessions.
 func (s *AuthService) ChangePassword(ctx context.Context, userID, currentPassword, newPassword, currentRefreshRaw string) error {
-	if len(newPassword) < minPasswordLen {
-		return domain.ErrValidation
+	if err := validatePasswordLen(newPassword); err != nil {
+		return err
+	}
+	if err := validatePasswordLen(currentPassword); err != nil {
+		return domain.ErrInvalidCredentials
 	}
 	user, err := s.store.GetUserByID(ctx, userID)
 	if err != nil {
@@ -160,10 +181,17 @@ func (s *AuthService) ChangePassword(ctx context.Context, userID, currentPasswor
 		return err
 	}
 
+	// Invalidate all outstanding access JWTs.
+	if _, err := s.store.BumpTokenVersion(ctx, userID); err != nil {
+		return err
+	}
+
 	exceptID := ""
 	if currentRefreshRaw != "" {
 		if stored, err := s.store.GetRefreshTokenByHash(ctx, auth.HashRefreshToken(currentRefreshRaw)); err == nil {
-			exceptID = stored.ID
+			if stored.UserID == userID {
+				exceptID = stored.ID
+			}
 		}
 	}
 	return s.store.RevokeUserRefreshTokens(ctx, userID, s.now().UTC(), exceptID)
@@ -201,9 +229,24 @@ func (s *AuthService) ListGames(ctx context.Context, userID string) ([]string, e
 	return s.store.ListUserGames(ctx, userID)
 }
 
+// ValidateAccessClaims ensures the user still exists and token_version matches.
+func (s *AuthService) ValidateAccessClaims(ctx context.Context, userID string, tokenVersion int64) error {
+	user, err := s.store.GetUserByID(ctx, userID)
+	if err != nil {
+		if errors.Is(err, domain.ErrNotFound) {
+			return domain.ErrUnauthorized
+		}
+		return err
+	}
+	if user.TokenVersion != tokenVersion {
+		return domain.ErrUnauthorized
+	}
+	return nil
+}
+
 func (s *AuthService) issueSession(ctx context.Context, user domain.User) (domain.AuthTokens, error) {
 	now := s.now().UTC()
-	access, err := s.tokens.IssueAccessToken(user.ID, user.Email, now)
+	access, err := s.tokens.IssueAccessToken(user.ID, user.Email, user.TokenVersion, now)
 	if err != nil {
 		return domain.AuthTokens{}, err
 	}
@@ -236,15 +279,26 @@ func normalizeEmail(email string) string {
 	return strings.ToLower(strings.TrimSpace(email))
 }
 
-func validateCredentials(email, name, password string) error {
-	if email == "" || !strings.Contains(email, "@") {
-		return domain.ErrValidation
+func emailDomain(email string) string {
+	if i := strings.LastIndex(email, "@"); i >= 0 && i+1 < len(email) {
+		return email[i+1:]
 	}
-	if name == "" {
-		return domain.ErrValidation
-	}
-	if len(password) < minPasswordLen {
+	return ""
+}
+
+func validatePasswordLen(password string) error {
+	if len(password) < minPasswordLen || len(password) > maxPasswordLen {
 		return domain.ErrValidation
 	}
 	return nil
+}
+
+func validateCredentials(email, name, password string) error {
+	if email == "" || !strings.Contains(email, "@") || utf8.RuneCountInString(email) > maxEmailLen {
+		return domain.ErrValidation
+	}
+	if name == "" || utf8.RuneCountInString(name) > maxNameLen {
+		return domain.ErrValidation
+	}
+	return validatePasswordLen(password)
 }

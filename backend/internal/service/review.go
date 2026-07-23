@@ -4,6 +4,7 @@ import (
 	"context"
 	"net/url"
 	"strings"
+	"unicode/utf8"
 
 	"github.com/google/uuid"
 
@@ -89,23 +90,28 @@ func (s *ReviewService) Get(ctx context.Context, userID, reviewID string) (domai
 
 // List returns a filtered page of reviews.
 func (s *ReviewService) List(ctx context.Context, userID string, filter domain.ReviewListFilter) (ReviewListResponse, error) {
+	if filter.Limit <= 0 || filter.Limit > MaxPageSize {
+		if filter.Limit <= 0 {
+			filter.Limit = 50
+		} else {
+			filter.Limit = MaxPageSize
+		}
+	}
+	if filter.Offset < 0 {
+		filter.Offset = 0
+	}
+	if filter.Offset > MaxOffset {
+		filter.Offset = MaxOffset
+	}
 	items, total, err := s.store.ListReviews(ctx, userID, filter)
 	if err != nil {
 		return ReviewListResponse{}, err
 	}
-	limit := filter.Limit
-	if limit <= 0 {
-		limit = 50
-	}
-	offset := filter.Offset
-	if offset < 0 {
-		offset = 0
-	}
 	return ReviewListResponse{
 		Items:  items,
 		Total:  total,
-		Limit:  limit,
-		Offset: offset,
+		Limit:  filter.Limit,
+		Offset: filter.Offset,
 	}, nil
 }
 
@@ -221,6 +227,9 @@ func (s *ReviewService) SubmitFeedback(ctx context.Context, userID, reviewID str
 		return domain.Review{}, err
 	}
 	fb.Note = strings.TrimSpace(fb.Note)
+	if utf8.RuneCountInString(fb.Note) > MaxFeedbackNote {
+		return domain.Review{}, domain.ErrValidation
+	}
 	fb.CreatedAt = s.now().UTC()
 	return s.store.UpsertGradeFeedback(ctx, userID, reviewID, fb)
 }
@@ -285,7 +294,12 @@ func breakdownRows(reviewID string, result scoring.Result) []domain.ScoreBreakdo
 }
 
 func validateCreate(in CreateReviewInput, expectedRuns int) error {
-	if strings.TrimSpace(in.GameName) == "" || strings.TrimSpace(in.ReviewText) == "" {
+	game := strings.TrimSpace(in.GameName)
+	text := strings.TrimSpace(in.ReviewText)
+	if game == "" || text == "" {
+		return domain.ErrValidation
+	}
+	if utf8.RuneCountInString(game) > MaxGameNameLen || utf8.RuneCountInString(text) > MaxReviewTextLen {
 		return domain.ErrValidation
 	}
 	if in.Stars < 1 || in.Stars > 10 {
@@ -297,8 +311,25 @@ func validateCreate(in CreateReviewInput, expectedRuns int) error {
 	if len(in.Runs) != expectedRuns {
 		return domain.ErrValidation
 	}
+	for _, run := range in.Runs {
+		if err := validateRun(run); err != nil {
+			return err
+		}
+	}
 	if in.LatencyMS < 0 {
 		return domain.ErrValidation
+	}
+	return nil
+}
+
+func validateRun(run scoring.Run) error {
+	for _, lr := range []scoring.LabelResult{run.Consistency, run.Authenticity, run.Experience, run.Usefulness} {
+		if utf8.RuneCountInString(lr.Reason) > MaxReasonLen {
+			return domain.ErrValidation
+		}
+		if utf8.RuneCountInString(lr.Label) > 64 {
+			return domain.ErrValidation
+		}
 	}
 	return nil
 }

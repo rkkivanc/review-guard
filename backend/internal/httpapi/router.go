@@ -27,8 +27,10 @@ type Dependencies struct {
 func NewRouter(deps Dependencies) http.Handler {
 	r := chi.NewRouter()
 
+	r.Use(SecurityHeaders)
+	r.Use(TrustedProxies(deps.Config.TrustedProxies))
 	r.Use(middleware.RequestID)
-	r.Use(middleware.RealIP)
+	r.Use(RedactSensitiveQuery)
 	r.Use(middleware.Logger)
 	r.Use(middleware.Recoverer)
 	r.Use(middleware.Timeout(30 * time.Second))
@@ -36,7 +38,7 @@ func NewRouter(deps Dependencies) http.Handler {
 		AllowedOrigins:   deps.Config.CORSOrigins,
 		AllowedMethods:   []string{"GET", "POST", "PATCH", "DELETE", "OPTIONS"},
 		AllowedHeaders:   []string{"Accept", "Authorization", "Content-Type", "X-Refresh-Token"},
-		AllowCredentials: true,
+		AllowCredentials: false, // Bearer tokens; cookies not used
 		MaxAge:           300,
 	}))
 
@@ -50,13 +52,17 @@ func NewRouter(deps Dependencies) http.Handler {
 	r.Get("/health", health.Live)
 	r.Get("/ready", health.Ready)
 
-	r.Post("/auth/register", authH.Register)
-	r.Post("/auth/login", authH.Login)
-	r.Post("/auth/refresh", authH.Refresh)
-	r.Post("/auth/logout", authH.Logout)
+	authLimit := NewRateLimiter(10, time.Minute) // login/register/refresh/logout
+	r.Group(func(ar chi.Router) {
+		ar.Use(authLimit.Middleware)
+		ar.Post("/auth/register", authH.Register)
+		ar.Post("/auth/login", authH.Login)
+		ar.Post("/auth/refresh", authH.Refresh)
+		ar.Post("/auth/logout", authH.Logout)
+	})
 
 	r.Group(func(pr chi.Router) {
-		pr.Use(RequireAuth(deps.Tokens))
+		pr.Use(RequireAuth(deps.Tokens, deps.AuthSvc))
 
 		pr.Get("/auth/me", authH.Me)
 		pr.Patch("/auth/me", authH.UpdateMe)
@@ -65,7 +71,6 @@ func NewRouter(deps Dependencies) http.Handler {
 		pr.Get("/games", authH.Games)
 		pr.Get("/games/{name}/average", reviewH.GameAverage)
 
-		// Static paths before /reviews/{id}
 		pr.Get("/reviews/analytics", reviewH.Analytics)
 		pr.Get("/reviews/feedback/hints", reviewH.FeedbackHints)
 		pr.Post("/reviews", reviewH.Create)

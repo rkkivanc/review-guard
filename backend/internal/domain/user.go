@@ -8,6 +8,7 @@ type User struct {
 	Email        string    `json:"email"`
 	Name         string    `json:"name"`
 	PasswordHash string    `json:"-"`
+	TokenVersion int64     `json:"-"` // bumped to invalidate access JWTs
 	CreatedAt    time.Time `json:"created_at"`
 }
 

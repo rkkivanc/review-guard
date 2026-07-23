@@ -22,9 +22,14 @@ type Store interface {
 
 	CreateRefreshToken(ctx context.Context, token domain.RefreshToken) (domain.RefreshToken, error)
 	GetRefreshTokenByHash(ctx context.Context, hash string) (domain.RefreshToken, error)
+	// ConsumeRefreshToken atomically revokes a still-valid refresh token.
+	// Returns ErrTokenReuse if the token exists but was already revoked/expired,
+	// ErrNotFound if unknown, or the consumed token on success.
+	ConsumeRefreshToken(ctx context.Context, hash string, at time.Time) (domain.RefreshToken, error)
 	RevokeRefreshToken(ctx context.Context, id string, at time.Time) error
 	RevokeUserRefreshTokens(ctx context.Context, userID string, at time.Time, exceptID string) error
 	ListUserRefreshTokens(ctx context.Context, userID string) ([]domain.RefreshToken, error)
+	BumpTokenVersion(ctx context.Context, userID string) (int64, error)
 
 	ListUserGames(ctx context.Context, userID string) ([]string, error)
 

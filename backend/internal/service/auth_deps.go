@@ -21,10 +21,12 @@ type UserRepository interface {
 type SessionRepository interface {
 	CreateRefreshToken(ctx context.Context, token domain.RefreshToken) (domain.RefreshToken, error)
 	GetRefreshTokenByHash(ctx context.Context, hash string) (domain.RefreshToken, error)
+	ConsumeRefreshToken(ctx context.Context, hash string, at time.Time) (domain.RefreshToken, error)
 	RevokeRefreshToken(ctx context.Context, id string, at time.Time) error
 	RevokeUserRefreshTokens(ctx context.Context, userID string, at time.Time, exceptID string) error
 	ListUserRefreshTokens(ctx context.Context, userID string) ([]domain.RefreshToken, error)
 	ListUserGames(ctx context.Context, userID string) ([]string, error)
+	BumpTokenVersion(ctx context.Context, userID string) (int64, error)
 }
 
 // AuthStore combines user + session persistence for AuthService.

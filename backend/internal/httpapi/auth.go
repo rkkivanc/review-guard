@@ -10,7 +10,10 @@ import (
 	"github.com/masterfabric/review-guard/mf-backend/internal/service"
 )
 
-const maxAuthBody = 1 << 20 // 1 MiB
+const (
+	maxAuthBody   = 8 << 10  // 8 KiB for auth JSON
+	maxReviewBody = 64 << 10 // 64 KiB for review payloads
+)
 
 // AuthHandler serves the 8 auth endpoints.
 type AuthHandler struct {
@@ -168,17 +171,14 @@ func (h *AuthHandler) ChangePassword(w http.ResponseWriter, r *http.Request) {
 }
 
 // Sessions handles GET /auth/sessions.
-// Optional query ?refresh_token= marks the current session (also accepts X-Refresh-Token header).
+// Current session is marked via X-Refresh-Token header only (never query string).
 func (h *AuthHandler) Sessions(w http.ResponseWriter, r *http.Request) {
 	userID, ok := UserIDFromContext(r.Context())
 	if !ok {
 		WriteErr(w, http.StatusUnauthorized, "unauthorized", "authentication required")
 		return
 	}
-	current := r.URL.Query().Get("refresh_token")
-	if current == "" {
-		current = r.Header.Get("X-Refresh-Token")
-	}
+	current := r.Header.Get("X-Refresh-Token")
 	sessions, err := h.svc.ListSessions(r.Context(), userID, current)
 	if err != nil {
 		mapAuthErr(w, err)
@@ -203,8 +203,12 @@ func (h *AuthHandler) Games(w http.ResponseWriter, r *http.Request) {
 }
 
 func decodeJSON(r *http.Request, dst any) error {
+	return decodeJSONLimited(r, dst, maxAuthBody)
+}
+
+func decodeJSONLimited(r *http.Request, dst any, maxBytes int64) error {
 	defer r.Body.Close()
-	dec := json.NewDecoder(io.LimitReader(r.Body, maxAuthBody))
+	dec := json.NewDecoder(io.LimitReader(r.Body, maxBytes))
 	dec.DisallowUnknownFields()
 	return dec.Decode(dst)
 }

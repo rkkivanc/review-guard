@@ -38,7 +38,7 @@ func (h *ReviewHandler) Create(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	var req createReviewRequest
-	if err := decodeJSON(r, &req); err != nil {
+	if err := decodeJSONLimited(r, &req, maxReviewBody); err != nil {
 		WriteErr(w, http.StatusBadRequest, "bad_request", "invalid JSON body")
 		return
 	}
@@ -67,8 +67,8 @@ func (h *ReviewHandler) List(w http.ResponseWriter, r *http.Request) {
 	filter := domain.ReviewListFilter{
 		Game:   q.Get("game"),
 		Grade:  q.Get("grade"),
-		Limit:  queryInt(q.Get("limit"), 50),
-		Offset: queryInt(q.Get("offset"), 0),
+		Limit:  clampLimit(queryInt(q.Get("limit"), 50), 50, service.MaxPageSize),
+		Offset: clampOffset(queryInt(q.Get("offset"), 0), service.MaxOffset),
 	}
 	if v := q.Get("needs_review"); v != "" {
 		b := strings.EqualFold(v, "true") || v == "1"
@@ -188,7 +188,7 @@ func (h *ReviewHandler) Feedback(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	var req feedbackRequest
-	if err := decodeJSON(r, &req); err != nil {
+	if err := decodeJSONLimited(r, &req, maxReviewBody); err != nil {
 		WriteErr(w, http.StatusBadRequest, "bad_request", "invalid JSON body")
 		return
 	}
@@ -213,12 +213,32 @@ func (h *ReviewHandler) FeedbackHints(w http.ResponseWriter, r *http.Request) {
 		WriteErr(w, http.StatusUnauthorized, "unauthorized", "authentication required")
 		return
 	}
-	hints, err := h.svc.FeedbackHints(r.Context(), userID, queryInt(r.URL.Query().Get("limit"), 8))
+	hints, err := h.svc.FeedbackHints(r.Context(), userID, clampLimit(queryInt(r.URL.Query().Get("limit"), 8), 8, 20))
 	if err != nil {
 		mapAuthErr(w, err)
 		return
 	}
 	WriteOK(w, http.StatusOK, hints)
+}
+
+func clampLimit(n, fallback, max int) int {
+	if n <= 0 {
+		return fallback
+	}
+	if n > max {
+		return max
+	}
+	return n
+}
+
+func clampOffset(n, max int) int {
+	if n < 0 {
+		return 0
+	}
+	if n > max {
+		return max
+	}
+	return n
 }
 
 func queryInt(raw string, fallback int) int {

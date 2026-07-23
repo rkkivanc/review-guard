@@ -22,8 +22,9 @@ type TokenManager struct {
 
 // Claims carried in access tokens.
 type Claims struct {
-	UserID string `json:"uid"`
-	Email  string `json:"email"`
+	UserID       string `json:"uid"`
+	Email        string `json:"email"`
+	TokenVersion int64  `json:"tv"`
 	jwt.RegisteredClaims
 }
 
@@ -47,10 +48,11 @@ func (tm *TokenManager) AccessTTL() time.Duration { return tm.accessTTL }
 func (tm *TokenManager) RefreshTTL() time.Duration { return tm.refreshTTL }
 
 // IssueAccessToken signs a short-lived JWT for the user.
-func (tm *TokenManager) IssueAccessToken(userID, email string, now time.Time) (string, error) {
+func (tm *TokenManager) IssueAccessToken(userID, email string, tokenVersion int64, now time.Time) (string, error) {
 	claims := Claims{
-		UserID: userID,
-		Email:  email,
+		UserID:       userID,
+		Email:        email,
+		TokenVersion: tokenVersion,
 		RegisteredClaims: jwt.RegisteredClaims{
 			Subject:   userID,
 			Issuer:    tm.issuer,
@@ -62,14 +64,14 @@ func (tm *TokenManager) IssueAccessToken(userID, email string, now time.Time) (s
 	return token.SignedString(tm.secret)
 }
 
-// ParseAccessToken validates signature, expiry, and algorithm.
+// ParseAccessToken validates signature, expiry, issuer, and algorithm.
 func (tm *TokenManager) ParseAccessToken(raw string) (*Claims, error) {
 	token, err := jwt.ParseWithClaims(raw, &Claims{}, func(t *jwt.Token) (any, error) {
 		if t.Method != jwt.SigningMethodHS256 {
 			return nil, fmt.Errorf("unexpected signing method: %v", t.Header["alg"])
 		}
 		return tm.secret, nil
-	}, jwt.WithValidMethods([]string{jwt.SigningMethodHS256.Alg()}))
+	}, jwt.WithValidMethods([]string{jwt.SigningMethodHS256.Alg()}), jwt.WithIssuer(tm.issuer))
 	if err != nil {
 		return nil, err
 	}

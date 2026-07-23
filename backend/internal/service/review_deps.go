@@ -9,6 +9,15 @@ import (
 	"github.com/masterfabric/review-guard/mf-backend/internal/scoring"
 )
 
+const (
+	MaxPageSize      = 100
+	MaxOffset        = 10_000
+	MaxReviewTextLen = 4_000
+	MaxGameNameLen   = 120
+	MaxReasonLen     = 500
+	MaxFeedbackNote  = 500
+)
+
 // ReviewRepository is the review-facing persistence surface (ISP).
 type ReviewRepository interface {
 	CreateReview(ctx context.Context, review domain.Review, runs []domain.Classification, breakdown []domain.ScoreBreakdownRow) (domain.Review, error)
@@ -47,13 +56,13 @@ type CreateReviewInput struct {
 
 // ScoreResponse is the typed GET /reviews/{id}/score payload.
 type ScoreResponse struct {
-	ReviewID    string                      `json:"review_id"`
-	TrustScore  float64                     `json:"trust_score"`
-	Grade       string                      `json:"grade"`
-	NeedsReview bool                        `json:"needs_review"`
-	Composite   float64                     `json:"composite"`
-	Penalty     float64                     `json:"penalty"`
-	Breakdown   []domain.ScoreBreakdownRow  `json:"breakdown"`
+	ReviewID    string                     `json:"review_id"`
+	TrustScore  float64                    `json:"trust_score"`
+	Grade       string                     `json:"grade"`
+	NeedsReview bool                       `json:"needs_review"`
+	Composite   float64                    `json:"composite"`
+	Penalty     float64                    `json:"penalty"`
+	Breakdown   []domain.ScoreBreakdownRow `json:"breakdown"`
 }
 
 // ReviewListResponse is the typed GET /reviews payload.

@@ -229,6 +229,47 @@ func (m *MemoryStore) GetRefreshTokenByHash(ctx context.Context, hash string) (d
 	return m.refreshByID[id], nil
 }
 
+// ConsumeRefreshToken atomically marks a valid refresh token revoked.
+func (m *MemoryStore) ConsumeRefreshToken(ctx context.Context, hash string, at time.Time) (domain.RefreshToken, error) {
+	if err := ctx.Err(); err != nil {
+		return domain.RefreshToken{}, err
+	}
+	m.mu.Lock()
+	defer m.mu.Unlock()
+
+	id, ok := m.refreshByHash[hash]
+	if !ok {
+		return domain.RefreshToken{}, domain.ErrNotFound
+	}
+	t := m.refreshByID[id]
+	if t.RevokedAt != nil || at.After(t.ExpiresAt) {
+		m.schedulePersist()
+		return t, domain.ErrTokenReuse
+	}
+	revoked := at
+	t.RevokedAt = &revoked
+	m.refreshByID[id] = t
+	m.schedulePersist()
+	return t, nil
+}
+
+func (m *MemoryStore) BumpTokenVersion(ctx context.Context, userID string) (int64, error) {
+	if err := ctx.Err(); err != nil {
+		return 0, err
+	}
+	m.mu.Lock()
+	defer m.mu.Unlock()
+
+	u, ok := m.usersByID[userID]
+	if !ok {
+		return 0, domain.ErrNotFound
+	}
+	u.TokenVersion++
+	m.usersByID[userID] = u
+	m.schedulePersist()
+	return u.TokenVersion, nil
+}
+
 func (m *MemoryStore) RevokeRefreshToken(ctx context.Context, id string, at time.Time) error {
 	if err := ctx.Err(); err != nil {
 		return err
