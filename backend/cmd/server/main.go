@@ -86,7 +86,7 @@ func main() {
 		slog.Warn("MLC_LLM_URL unset; POST /reviews will fail until the LLM service is configured")
 	}
 	reviewSvc := service.NewReviewService(store, cfg, llmClient, runtimeStore)
-	adminSvc := service.NewAdminService(runtimeStore, adapterReg, queryLogs, llmClient)
+	adminSvc := service.NewAdminService(runtimeStore, adapterReg, queryLogs, llmClient, store)
 	mcpHandler := &mcp.Handler{
 		Tokens:   tokens,
 		AuthSvc:  authSvc,

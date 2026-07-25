@@ -100,16 +100,110 @@ export class ApiClientError extends Error {
   }
 }
 
+export const REFRESH_TOKEN_KEY = "rg_refresh_token";
+
+type SessionHooks = {
+  onTokens: (tokens: AuthTokens) => void;
+  onCleared: () => void;
+};
+
+let sessionHooks: SessionHooks | null = null;
+let memoryAccessToken: string | null = null;
+let refreshInFlight: Promise<string | null> | null = null;
+
+/** AuthProvider registers here so API/MCP can rotate tokens without prop drilling. */
+export function bindAuthSession(hooks: SessionHooks | null) {
+  sessionHooks = hooks;
+}
+
+export function setMemoryAccessToken(token: string | null) {
+  memoryAccessToken = token;
+}
+
+export function readRefreshToken(): string | null {
+  if (typeof window === "undefined") return null;
+  return sessionStorage.getItem(REFRESH_TOKEN_KEY);
+}
+
+export function writeRefreshToken(token: string | null) {
+  if (typeof window === "undefined") return;
+  if (!token) sessionStorage.removeItem(REFRESH_TOKEN_KEY);
+  else sessionStorage.setItem(REFRESH_TOKEN_KEY, token);
+}
+
+function isAuthExchangePath(path: string) {
+  return (
+    path === "/auth/login" ||
+    path === "/auth/register" ||
+    path === "/auth/refresh" ||
+    path === "/auth/logout"
+  );
+}
+
+/** Single-flight refresh; returns a fresh access token or null. */
+export async function refreshAccessToken(): Promise<string | null> {
+  if (refreshInFlight) return refreshInFlight;
+  refreshInFlight = (async () => {
+    const refresh = readRefreshToken();
+    if (!refresh) {
+      memoryAccessToken = null;
+      sessionHooks?.onCleared();
+      return null;
+    }
+    try {
+      const tokens = await apiRequest<AuthTokens>("/auth/refresh", {
+        method: "POST",
+        body: { refresh_token: refresh },
+        anonymous: true,
+        skipAuthRetry: true,
+      });
+      memoryAccessToken = tokens.access_token;
+      writeRefreshToken(tokens.refresh_token);
+      sessionHooks?.onTokens(tokens);
+      return tokens.access_token;
+    } catch {
+      memoryAccessToken = null;
+      writeRefreshToken(null);
+      sessionHooks?.onCleared();
+      return null;
+    } finally {
+      refreshInFlight = null;
+    }
+  })();
+  return refreshInFlight;
+}
+
+/** Prefer current token; if missing, refresh from sessionStorage. */
+export async function ensureAccessToken(
+  preferred?: string | null,
+): Promise<string | null> {
+  if (preferred) return preferred;
+  if (memoryAccessToken) return memoryAccessToken;
+  return refreshAccessToken();
+}
+
 type RequestOptions = {
   method?: string;
   body?: unknown;
   accessToken?: string | null;
   signal?: AbortSignal;
+  /** Do not attach Authorization (login/register/refresh/logout). */
+  anonymous?: boolean;
+  /** Internal: do not attempt 401 → refresh → retry (avoids loops). */
+  skipAuthRetry?: boolean;
 };
 
 export async function apiRequest<T>(
   path: string,
   options: RequestOptions = {},
+): Promise<T> {
+  return apiRequestOnce<T>(path, options, false);
+}
+
+async function apiRequestOnce<T>(
+  path: string,
+  options: RequestOptions,
+  retried: boolean,
 ): Promise<T> {
   const apiUrl = getApiUrl();
   const headers: Record<string, string> = {
@@ -118,8 +212,11 @@ export async function apiRequest<T>(
   if (options.body !== undefined) {
     headers["Content-Type"] = "application/json";
   }
-  if (options.accessToken) {
-    headers.Authorization = `Bearer ${options.accessToken}`;
+  const bearer = options.anonymous
+    ? null
+    : (options.accessToken ?? memoryAccessToken);
+  if (bearer) {
+    headers.Authorization = `Bearer ${bearer}`;
   }
 
   let res: Response;
@@ -154,6 +251,22 @@ export async function apiRequest<T>(
   }
 
   if (!envelope.success || envelope.data === null) {
+    const canRetry =
+      !retried &&
+      !options.skipAuthRetry &&
+      !isAuthExchangePath(path) &&
+      res.status === 401 &&
+      Boolean(bearer || readRefreshToken());
+    if (canRetry) {
+      const next = await refreshAccessToken();
+      if (next) {
+        return apiRequestOnce<T>(
+          path,
+          { ...options, accessToken: next },
+          true,
+        );
+      }
+    }
     throw new ApiClientError(
       res.status,
       envelope.error?.code || "request_failed",
@@ -166,21 +279,35 @@ export async function apiRequest<T>(
 
 export const authApi = {
   register(body: { email: string; name: string; password: string }) {
-    return apiRequest<AuthTokens>("/auth/register", { method: "POST", body });
+    return apiRequest<AuthTokens>("/auth/register", {
+      method: "POST",
+      body,
+      anonymous: true,
+      skipAuthRetry: true,
+    });
   },
   login(body: { email: string; password: string }) {
-    return apiRequest<AuthTokens>("/auth/login", { method: "POST", body });
+    return apiRequest<AuthTokens>("/auth/login", {
+      method: "POST",
+      body,
+      anonymous: true,
+      skipAuthRetry: true,
+    });
   },
   refresh(refresh_token: string) {
     return apiRequest<AuthTokens>("/auth/refresh", {
       method: "POST",
       body: { refresh_token },
+      anonymous: true,
+      skipAuthRetry: true,
     });
   },
   logout(refresh_token: string) {
     return apiRequest<{ logged_out: boolean }>("/auth/logout", {
       method: "POST",
       body: { refresh_token },
+      anonymous: true,
+      skipAuthRetry: true,
     });
   },
   me(accessToken: string) {
@@ -410,5 +537,19 @@ export const adminApi = {
   },
   listLogs(accessToken: string, limit = 50) {
     return apiRequest<{ logs: QueryLogEntry[] }>(`/admin/logs?limit=${limit}`, { accessToken });
+  },
+  exportFinetune(accessToken: string) {
+    return apiRequest<{ count: number; examples: unknown[] }>("/admin/finetune/export", {
+      accessToken,
+    });
+  },
+  async downloadFinetuneJsonl(accessToken: string) {
+    const res = await fetch(`${getApiUrl()}/admin/finetune/export?format=jsonl`, {
+      headers: { Authorization: `Bearer ${accessToken}`, Accept: "application/x-ndjson" },
+    });
+    if (!res.ok) {
+      throw new Error(`Export failed (${res.status})`);
+    }
+    return res.text();
   },
 };

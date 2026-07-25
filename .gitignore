@@ -5,6 +5,7 @@
 # Go
 backend/bin/
 backend/data/
+backend/peft-adapters/
 *.exe
 *.test
 *.out
@@ -16,6 +17,12 @@ frontend/.next/
 frontend/out/
 *.log
 .DS_Store
+__pycache__/
+*.pyc
+# Local training env / caches (scripts stay tracked)
+training/.venv/
+training/data/*.jsonl
+peft-adapters/**/checkpoints/
 
 # local Cursor / planning (not part of the graded app)
 .cursor/

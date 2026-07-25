@@ -1,4 +1,4 @@
-import { getApiUrl } from "@/lib/api";
+import { getApiUrl, refreshAccessToken } from "@/lib/api";
 
 export type RichResult = {
   content: string;
@@ -22,11 +22,11 @@ type RpcResponse = {
 
 let rpcId = 1;
 
-async function mcpRpc(
+async function mcpRpcOnce(
   accessToken: string,
   method: string,
   params?: Record<string, unknown>,
-): Promise<RpcResponse["result"]> {
+): Promise<{ res: Response; body: RpcResponse }> {
   const id = rpcId++;
   const res = await fetch(`${getApiUrl()}/mcp`, {
     method: "POST",
@@ -43,6 +43,28 @@ async function mcpRpc(
     }),
   });
   const body = (await res.json()) as RpcResponse;
+  return { res, body };
+}
+
+async function mcpRpc(
+  accessToken: string,
+  method: string,
+  params?: Record<string, unknown>,
+): Promise<RpcResponse["result"]> {
+  let { res, body } = await mcpRpcOnce(accessToken, method, params);
+
+  const unauthorized =
+    res.status === 401 ||
+    body.error?.code === -32001 ||
+    /unauthor/i.test(body.error?.message || "");
+
+  if (unauthorized) {
+    const next = await refreshAccessToken();
+    if (next) {
+      ({ res, body } = await mcpRpcOnce(next, method, params));
+    }
+  }
+
   if (body.error) {
     throw new Error(body.error.message || `MCP error ${body.error.code}`);
   }

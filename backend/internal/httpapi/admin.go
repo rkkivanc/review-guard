@@ -97,6 +97,30 @@ func (h *AdminHandler) ListLogs(w http.ResponseWriter, r *http.Request) {
 	WriteOK(w, http.StatusOK, map[string]any{"logs": h.Admin.ListLogs(limit)})
 }
 
+func (h *AdminHandler) ExportFinetune(w http.ResponseWriter, r *http.Request) {
+	userID, ok := UserIDFromContext(r.Context())
+	if !ok {
+		WriteErr(w, http.StatusUnauthorized, "unauthorized", "authentication required")
+		return
+	}
+	exp, err := h.Admin.ExportFinetuneDataset(r.Context(), userID)
+	if err != nil {
+		writeAdminErr(w, err)
+		return
+	}
+	if r.URL.Query().Get("format") == "jsonl" {
+		w.Header().Set("Content-Type", "application/x-ndjson; charset=utf-8")
+		w.Header().Set("Content-Disposition", `attachment; filename="feedback-finetune.jsonl"`)
+		w.WriteHeader(http.StatusOK)
+		enc := json.NewEncoder(w)
+		for _, ex := range exp.Examples {
+			_ = enc.Encode(ex)
+		}
+		return
+	}
+	WriteOK(w, http.StatusOK, exp)
+}
+
 func writeAdminErr(w http.ResponseWriter, err error) {
 	switch {
 	case errors.Is(err, domain.ErrValidation):

@@ -104,6 +104,7 @@ func NewRouter(deps Dependencies) http.Handler {
 				ar.Delete("/admin/adapters/{id}", adminH.DeleteAdapter)
 				ar.Post("/admin/adapters/activate", adminH.ActivateAdapter)
 				ar.Get("/admin/logs", adminH.ListLogs)
+				ar.Get("/admin/finetune/export", adminH.ExportFinetune)
 			})
 		}
 	})

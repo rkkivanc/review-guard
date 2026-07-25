@@ -1,0 +1,7 @@
+{
+  "adapter_id": "feedback-lora",
+  "base_model": "HuggingFaceTB/SmolLM2-360M-Instruct",
+  "examples": 7,
+  "trained_at": 1784997876,
+  "source": "human-feedback"
+}

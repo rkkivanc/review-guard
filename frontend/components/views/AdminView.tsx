@@ -9,7 +9,7 @@ import {
 } from "@/lib/api";
 import { useAuth } from "@/lib/auth";
 
-type Tab = "adapters" | "prompt" | "limits" | "logs";
+type Tab = "adapters" | "prompt" | "limits" | "logs" | "finetune";
 
 export function AdminView() {
   const { accessToken } = useAuth();
@@ -21,6 +21,7 @@ export function AdminView() {
   const [adapters, setAdapters] = useState<AdapterMeta[]>([]);
   const [config, setConfig] = useState<LLMRuntimeConfig | null>(null);
   const [logs, setLogs] = useState<QueryLogEntry[]>([]);
+  const [finetuneCount, setFinetuneCount] = useState<number | null>(null);
 
   const [newId, setNewId] = useState("");
   const [newName, setNewName] = useState("");
@@ -30,14 +31,16 @@ export function AdminView() {
     if (!accessToken) return;
     setError(null);
     try {
-      const [a, c, l] = await Promise.all([
+      const [a, c, l, ft] = await Promise.all([
         adminApi.listAdapters(accessToken),
         adminApi.getLLMConfig(accessToken),
         adminApi.listLogs(accessToken, 40),
+        adminApi.exportFinetune(accessToken),
       ]);
       setAdapters(a.adapters);
       setConfig(c);
       setLogs(l.logs);
+      setFinetuneCount(ft.count);
     } catch (err) {
       setError(err instanceof Error ? err.message : "Failed to load admin data");
     }
@@ -129,6 +132,7 @@ export function AdminView() {
             ["prompt", "System prompt"],
             ["limits", "Context limits"],
             ["logs", "Log monitor"],
+            ["finetune", "Finetune"],
           ] as const
         ).map(([id, label]) => (
           <button
@@ -300,6 +304,60 @@ export function AdminView() {
             </tbody>
           </table>
           {logs.length === 0 ? <p className="muted">No MCP queries yet.</p> : null}
+        </div>
+      )}
+
+      {tab === "finetune" && (
+        <div className="panel">
+          <h2>Human-feedback fine-tune</h2>
+          <p className="muted">
+            Export labeled reviews as chat JSONL, train a LoRA under{" "}
+            <code>training/train_lora.py</code>, then activate the adapter here.
+          </p>
+          <p>
+            Labeled examples available:{" "}
+            <strong className="mono">{finetuneCount == null ? "…" : finetuneCount}</strong>
+          </p>
+          <div className="admin-actions">
+            <button
+              type="button"
+              className="btn"
+              disabled={busy}
+              onClick={async () => {
+                if (!accessToken) return;
+                setBusy(true);
+                setError(null);
+                try {
+                  const text = await adminApi.downloadFinetuneJsonl(accessToken);
+                  const blob = new Blob([text], { type: "application/x-ndjson" });
+                  const url = URL.createObjectURL(blob);
+                  const a = document.createElement("a");
+                  a.href = url;
+                  a.download = "feedback-finetune.jsonl";
+                  a.click();
+                  URL.revokeObjectURL(url);
+                  setNotice("Downloaded feedback-finetune.jsonl — see training/README.md");
+                } catch (err) {
+                  setError(err instanceof Error ? err.message : "Export failed");
+                } finally {
+                  setBusy(false);
+                }
+              }}
+            >
+              Download JSONL
+            </button>
+            <button type="button" disabled={busy} onClick={() => void refresh()}>
+              Refresh count
+            </button>
+          </div>
+          <ol className="muted" style={{ marginTop: "1rem" }}>
+            <li>Label reviews in Simulator / Dashboard feedback</li>
+            <li>Download JSONL (or use <code>training/export_feedback.py</code>)</li>
+            <li>
+              Run <code>python train_lora.py --data … --adapter-id feedback-lora</code>
+            </li>
+            <li>Admin → Adapters → Activate <code>feedback-lora</code></li>
+          </ol>
         </div>
       )}
     </div>

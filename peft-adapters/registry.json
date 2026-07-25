@@ -11,6 +11,12 @@
       "name": "Strict review analyst",
       "path": "strict-review",
       "description": "Stricter authenticity / bot detection"
+    },
+    {
+      "id": "feedback-lora",
+      "name": "Human feedback LoRA",
+      "path": "feedback-lora",
+      "description": "LoRA from 7 human-labeled reviews (base=HuggingFaceTB/SmolLM2-360M-Instruct)"
     }
   ]
 }

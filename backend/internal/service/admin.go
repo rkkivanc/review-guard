@@ -2,6 +2,8 @@ package service
 
 import (
 	"context"
+	"encoding/json"
+	"fmt"
 	"strings"
 
 	"github.com/masterfabric/review-guard/mf-backend/internal/adapters"
@@ -11,17 +13,23 @@ import (
 	"github.com/masterfabric/review-guard/mf-backend/internal/llmruntime"
 )
 
+// feedbackReviewLister lists reviews for finetune export (ISP).
+type feedbackReviewLister interface {
+	ListReviews(ctx context.Context, userID string, filter domain.ReviewListFilter) ([]domain.Review, int, error)
+}
+
 // AdminService is the LLM control-plane (adapters, prompts, limits, logs).
 type AdminService struct {
 	runtime  *llmruntime.Store
 	adapters *adapters.Registry
 	logs     *llqlog.Store
 	llm      *llm.Client
+	reviews  feedbackReviewLister
 }
 
 // NewAdminService wires admin use cases.
-func NewAdminService(runtime *llmruntime.Store, reg *adapters.Registry, logs *llqlog.Store, llmClient *llm.Client) *AdminService {
-	return &AdminService{runtime: runtime, adapters: reg, logs: logs, llm: llmClient}
+func NewAdminService(runtime *llmruntime.Store, reg *adapters.Registry, logs *llqlog.Store, llmClient *llm.Client, reviews feedbackReviewLister) *AdminService {
+	return &AdminService{runtime: runtime, adapters: reg, logs: logs, llm: llmClient, reviews: reviews}
 }
 
 // GetLLMConfig returns hot-swap runtime settings.
@@ -120,4 +128,100 @@ func (s *AdminService) ActivateAdapter(ctx context.Context, id string) (domain.L
 // ListLogs returns recent MCP/LLM query logs.
 func (s *AdminService) ListLogs(limit int) []domain.QueryLogEntry {
 	return s.logs.List(limit)
+}
+
+// ExportFinetuneDataset builds supervised chat examples from human label feedback.
+func (s *AdminService) ExportFinetuneDataset(ctx context.Context, userID string) (domain.FinetuneExport, error) {
+	if s.reviews == nil {
+		return domain.FinetuneExport{}, fmt.Errorf("%w: review store unavailable", domain.ErrValidation)
+	}
+	items, _, err := s.reviews.ListReviews(ctx, userID, domain.ReviewListFilter{
+		Limit:  MaxPageSize,
+		Offset: 0,
+	})
+	if err != nil {
+		return domain.FinetuneExport{}, err
+	}
+	examples := make([]domain.FinetuneExample, 0, len(items))
+	for _, r := range items {
+		if r.Feedback == nil {
+			continue
+		}
+		ex, ok := buildFinetuneExample(r)
+		if !ok {
+			continue
+		}
+		examples = append(examples, ex)
+	}
+	return domain.FinetuneExport{Count: len(examples), Examples: examples}, nil
+}
+
+func buildFinetuneExample(r domain.Review) (domain.FinetuneExample, bool) {
+	fb := r.Feedback
+	if fb == nil {
+		return domain.FinetuneExample{}, false
+	}
+	target, ok := targetJSONFromFeedback(*fb)
+	if !ok {
+		return domain.FinetuneExample{}, false
+	}
+	userPrompt := llm.BuildClassifyPrompt(r.GameName, r.Stars, r.ReviewText, nil)
+	sys := "You are a strict game-review analyst. Respond with ONLY a JSON object for the four dimensions."
+	return domain.FinetuneExample{
+		ReviewID: r.ID,
+		GameName: r.GameName,
+		Stars:    r.Stars,
+		Messages: []domain.FinetuneChatMessage{
+			{Role: "system", Content: sys},
+			{Role: "user", Content: userPrompt},
+			{Role: "assistant", Content: target},
+		},
+	}, true
+}
+
+func targetJSONFromFeedback(fb domain.ClassificationFeedback) (string, bool) {
+	type dim struct {
+		Label      string  `json:"label"`
+		Confidence float64 `json:"confidence"`
+		Reason     string  `json:"reason"`
+	}
+	pick := func(j domain.DimJudgment, name string) (dim, bool) {
+		label := strings.TrimSpace(j.ModelLabel)
+		if !j.Correct {
+			label = strings.TrimSpace(j.CorrectLabel)
+		}
+		if label == "" {
+			return dim{}, false
+		}
+		reason := "human-confirmed label"
+		if !j.Correct {
+			reason = "human-corrected label"
+		}
+		if note := strings.TrimSpace(fb.Note); note != "" && name == "consistency" {
+			reason = note
+		}
+		conf := 0.92
+		if !j.Correct {
+			conf = 0.95
+		}
+		return dim{Label: label, Confidence: conf, Reason: reason}, true
+	}
+	c, ok1 := pick(fb.Consistency, "consistency")
+	a, ok2 := pick(fb.Authenticity, "authenticity")
+	e, ok3 := pick(fb.Experience, "experience")
+	u, ok4 := pick(fb.Usefulness, "usefulness")
+	if !ok1 || !ok2 || !ok3 || !ok4 {
+		return "", false
+	}
+	payload := map[string]dim{
+		"consistency":  c,
+		"authenticity": a,
+		"experience":   e,
+		"usefulness":   u,
+	}
+	raw, err := json.Marshal(payload)
+	if err != nil {
+		return "", false
+	}
+	return string(raw), true
 }

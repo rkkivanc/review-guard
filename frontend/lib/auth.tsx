@@ -6,12 +6,21 @@ import {
   useContext,
   useEffect,
   useMemo,
+  useRef,
   useState,
   type ReactNode,
 } from "react";
-import { ApiClientError, authApi, type AuthTokens, type User } from "@/lib/api";
-
-const REFRESH_KEY = "rg_refresh_token";
+import {
+  ApiClientError,
+  authApi,
+  bindAuthSession,
+  readRefreshToken,
+  refreshAccessToken,
+  setMemoryAccessToken,
+  writeRefreshToken,
+  type AuthTokens,
+  type User,
+} from "@/lib/api";
 
 type AuthState = {
   user: User | null;
@@ -26,38 +35,48 @@ type AuthState = {
 
 const AuthContext = createContext<AuthState | null>(null);
 
-function readRefresh(): string | null {
-  if (typeof window === "undefined") return null;
-  return sessionStorage.getItem(REFRESH_KEY);
-}
-
-function writeRefresh(token: string | null) {
-  if (typeof window === "undefined") return;
-  if (!token) sessionStorage.removeItem(REFRESH_KEY);
-  else sessionStorage.setItem(REFRESH_KEY, token);
-}
-
 export function AuthProvider({ children }: { children: ReactNode }) {
   const [user, setUser] = useState<User | null>(null);
   const [accessToken, setAccessToken] = useState<string | null>(null);
   const [ready, setReady] = useState(false);
-
-  const applySession = useCallback((tokens: AuthTokens) => {
-    setAccessToken(tokens.access_token);
-    setUser(tokens.user);
-    writeRefresh(tokens.refresh_token);
-  }, []);
+  const [expiresAt, setExpiresAt] = useState<number | null>(null);
+  const applyingRef = useRef(false);
 
   const clearSession = useCallback(() => {
     setAccessToken(null);
     setUser(null);
-    writeRefresh(null);
+    setExpiresAt(null);
+    setMemoryAccessToken(null);
+    writeRefreshToken(null);
   }, []);
+
+  const applySession = useCallback((tokens: AuthTokens) => {
+    applyingRef.current = true;
+    setAccessToken(tokens.access_token);
+    setUser(tokens.user);
+    setMemoryAccessToken(tokens.access_token);
+    writeRefreshToken(tokens.refresh_token);
+    const ttlSec = Math.max(30, Number(tokens.expires_in) || 900);
+    setExpiresAt(Date.now() + ttlSec * 1000);
+    applyingRef.current = false;
+  }, []);
+
+  useEffect(() => {
+    bindAuthSession({
+      onTokens: (tokens) => {
+        if (!applyingRef.current) applySession(tokens);
+      },
+      onCleared: () => {
+        if (!applyingRef.current) clearSession();
+      },
+    });
+    return () => bindAuthSession(null);
+  }, [applySession, clearSession]);
 
   useEffect(() => {
     let cancelled = false;
     (async () => {
-      const refresh = readRefresh();
+      const refresh = readRefreshToken();
       if (!refresh) {
         if (!cancelled) setReady(true);
         return;
@@ -76,6 +95,16 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     };
   }, [applySession, clearSession]);
 
+  // Proactively rotate access JWT ~60s before expiry.
+  useEffect(() => {
+    if (!accessToken || !expiresAt) return;
+    const delay = Math.max(5_000, expiresAt - Date.now() - 60_000);
+    const timer = window.setTimeout(() => {
+      void refreshAccessToken();
+    }, delay);
+    return () => window.clearTimeout(timer);
+  }, [accessToken, expiresAt]);
+
   const login = useCallback(
     async (email: string, password: string) => {
       const tokens = await authApi.login({ email, password });
@@ -93,7 +122,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   );
 
   const logout = useCallback(async () => {
-    const refresh = readRefresh();
+    const refresh = readRefreshToken();
     try {
       if (refresh) await authApi.logout(refresh);
     } catch (err) {
