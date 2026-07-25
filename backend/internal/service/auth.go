@@ -45,10 +45,15 @@ func (s *AuthService) Register(ctx context.Context, email, name, password string
 		return domain.AuthTokens{}, err
 	}
 
+	role := domain.RoleUser
+	if s.isAdminEmail(email) {
+		role = domain.RoleAdmin
+	}
 	user := domain.User{
 		ID:           uuid.NewString(),
 		Email:        email,
 		Name:         name,
+		Role:         role,
 		PasswordHash: string(hash),
 		TokenVersion: 0,
 		CreatedAt:    s.now().UTC(),
@@ -133,7 +138,13 @@ func (s *AuthService) Logout(ctx context.Context, refreshRaw string) error {
 
 // Me returns the current user profile.
 func (s *AuthService) Me(ctx context.Context, userID string) (domain.User, error) {
-	return s.store.GetUserByID(ctx, userID)
+	user, err := s.store.GetUserByID(ctx, userID)
+	if err != nil {
+		return domain.User{}, err
+	}
+	user = s.normalizeUserRole(ctx, user)
+	user.PasswordHash = ""
+	return user, nil
 }
 
 // UpdateMe updates name and/or email.
@@ -245,6 +256,7 @@ func (s *AuthService) ValidateAccessClaims(ctx context.Context, userID string, t
 }
 
 func (s *AuthService) issueSession(ctx context.Context, user domain.User) (domain.AuthTokens, error) {
+	user = s.normalizeUserRole(ctx, user)
 	now := s.now().UTC()
 	access, err := s.tokens.IssueAccessToken(user.ID, user.Email, user.TokenVersion, now)
 	if err != nil {
@@ -266,6 +278,7 @@ func (s *AuthService) issueSession(ctx context.Context, user domain.User) (domai
 	}
 
 	user.PasswordHash = ""
+	user.Role = domain.NormalizeRole(user.Role)
 	return domain.AuthTokens{
 		AccessToken:  access,
 		RefreshToken: raw,
@@ -273,6 +286,33 @@ func (s *AuthService) issueSession(ctx context.Context, user domain.User) (domai
 		ExpiresIn:    int64(s.tokens.AccessTTL().Seconds()),
 		User:         user,
 	}, nil
+}
+
+func (s *AuthService) normalizeUserRole(ctx context.Context, user domain.User) domain.User {
+	desired := domain.NormalizeRole(user.Role)
+	if s.isAdminEmail(user.Email) {
+		desired = domain.RoleAdmin
+	}
+	if desired == domain.NormalizeRole(user.Role) {
+		user.Role = desired
+		return user
+	}
+	user.Role = desired
+	if updated, err := s.store.UpdateUser(ctx, user); err == nil {
+		updated.PasswordHash = ""
+		return updated
+	}
+	return user
+}
+
+// IsAdmin reports whether the user has the admin role.
+func (s *AuthService) IsAdmin(ctx context.Context, userID string) (bool, error) {
+	user, err := s.store.GetUserByID(ctx, userID)
+	if err != nil {
+		return false, err
+	}
+	user = s.normalizeUserRole(ctx, user)
+	return user.Role == domain.RoleAdmin, nil
 }
 
 func normalizeEmail(email string) string {

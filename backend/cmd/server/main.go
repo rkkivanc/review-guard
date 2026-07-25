@@ -11,10 +11,14 @@ import (
 	"syscall"
 	"time"
 
+	"github.com/masterfabric/review-guard/mf-backend/internal/adapters"
 	"github.com/masterfabric/review-guard/mf-backend/internal/auth"
 	"github.com/masterfabric/review-guard/mf-backend/internal/config"
 	"github.com/masterfabric/review-guard/mf-backend/internal/httpapi"
 	"github.com/masterfabric/review-guard/mf-backend/internal/llm"
+	"github.com/masterfabric/review-guard/mf-backend/internal/llqlog"
+	"github.com/masterfabric/review-guard/mf-backend/internal/llmruntime"
+	"github.com/masterfabric/review-guard/mf-backend/internal/mcp"
 	"github.com/masterfabric/review-guard/mf-backend/internal/repository"
 	"github.com/masterfabric/review-guard/mf-backend/internal/service"
 )
@@ -64,16 +68,33 @@ func main() {
 		os.Exit(1)
 	}
 
+	adapterReg, err := adapters.New(cfg.PEFTAdaptersDir)
+	if err != nil {
+		slog.Error("adapters registry", "err", err)
+		os.Exit(1)
+	}
+	runtimeStore := llmruntime.New(cfg.DefaultSystemPrompt, cfg.ClassificationTemperature, 1024, 1.0)
+	queryLogs := llqlog.New(200)
+
 	healthSvc := service.NewHealthService(cfg, store)
 	cfgSvc := service.NewConfigService(cfg)
-	authSvc := service.NewAuthService(store, tokens)
+	authSvc := service.NewAuthService(store, tokens, cfg.IsAdminEmail)
 	llmClient := llm.NewClient(cfg.MLCLLMURL, cfg.MLCModelID, cfg.ClassificationRuns, cfg.ClassificationTemperature, cfg.LLMTimeout)
 	if llmClient.Enabled() {
 		slog.Info("MLC LLM client configured", "url", cfg.MLCLLMURL, "model", cfg.MLCModelID)
 	} else {
 		slog.Warn("MLC_LLM_URL unset; POST /reviews will fail until the LLM service is configured")
 	}
-	reviewSvc := service.NewReviewService(store, cfg, llmClient)
+	reviewSvc := service.NewReviewService(store, cfg, llmClient, runtimeStore)
+	adminSvc := service.NewAdminService(runtimeStore, adapterReg, queryLogs, llmClient)
+	mcpHandler := &mcp.Handler{
+		Tokens:   tokens,
+		AuthSvc:  authSvc,
+		LLM:      llmClient,
+		Runtime:  runtimeStore,
+		Adapters: adapterReg,
+		Logs:     queryLogs,
+	}
 
 	router := httpapi.NewRouter(httpapi.Dependencies{
 		Config:    cfg,
@@ -82,6 +103,8 @@ func main() {
 		CfgSvc:    cfgSvc,
 		AuthSvc:   authSvc,
 		ReviewSvc: reviewSvc,
+		AdminSvc:  adminSvc,
+		MCP:       mcpHandler,
 	})
 
 	srv := &http.Server{

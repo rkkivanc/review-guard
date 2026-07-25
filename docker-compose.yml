@@ -1,7 +1,13 @@
 # Local ReviewGuard stack: gateway → backend(+scale) → mlc-llm
 # Observability: Prometheus + Grafana + Loki/Promtail
 #
+#   # Stub LLM (default, no GPU):
 #   docker compose up --build
+#
+#   # Real MLC-LLM (NVIDIA GPU) — stop stub first to free :8000, then:
+#   docker compose stop mlc-llm
+#   docker compose --profile gpu up
+#
 #   docker compose up --build --scale backend=2
 #
 # UI still runs on the host: cd frontend && npm run dev
@@ -10,11 +16,18 @@
 name: review-guard
 
 services:
+  # CPU-friendly OpenAI-compatible stub (same contract as real MLC).
   mlc-llm:
     build: ./services/mlc-llm
     image: reviewguard-mlc-llm:local
     ports:
       - "8000:8000"
+    volumes:
+      - ./models:/models:ro
+      - ./peft-adapters:/adapters
+    environment:
+      MODEL_ID: "gemma-2-2b-it-q4f16_1-MLC"
+      ADAPTERS_DIR: "/adapters"
     healthcheck:
       test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8000/health')"]
       interval: 10s
@@ -22,7 +35,42 @@ services:
       retries: 5
       start_period: 5s
     networks:
-      - rg
+      rg:
+        aliases:
+          - llm
+
+  # Hardware-accelerated MLC-LLM runtime (requires NVIDIA Container Toolkit).
+  llm-engine:
+    profiles: ["gpu"]
+    image: ghcr.io/mlc-ai/mlc-llm:latest
+    ports:
+      - "8000:8000"
+    volumes:
+      - ./models:/models:ro
+      - ./peft-adapters:/adapters:ro
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: 1
+              capabilities: [gpu]
+    command: >
+      mlc_llm serve /models/FinalBoss-7B-q4f16_1
+      --model-lib-path /models/FinalBoss-7B/lib.so
+      --host 0.0.0.0
+      --port 8000
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8000/v1/models')"]
+      interval: 15s
+      timeout: 5s
+      retries: 10
+      start_period: 60s
+    networks:
+      rg:
+        aliases:
+          - llm
+          - mlc-llm
 
   backend:
     build: ./backend
@@ -32,18 +80,25 @@ services:
     environment:
       PORT: "8080"
       CORS_ORIGINS: "http://localhost:3000"
-      MLC_LLM_URL: "http://mlc-llm:8000"
+      MLC_LLM_URL: "http://llm:8000"
       MLC_MODEL_ID: "gemma-2-2b-it-q4f16_1-MLC"
       CLASSIFICATION_RUNS: "3"
       CLASSIFICATION_TEMPERATURE: "0.7"
       TRUST_THRESHOLD: "70"
       DATA_DIR: "/app/data"
+      PEFT_ADAPTERS_DIR: "/app/peft-adapters"
+      ADMIN_EMAILS: "admin@reviewguard.local"
       TRUSTED_PROXIES: "172.16.0.0/12,10.0.0.0/8,192.168.0.0/16"
     volumes:
       - backend-data:/app/data
+      - ./peft-adapters:/app/peft-adapters
     depends_on:
       mlc-llm:
         condition: service_healthy
+        required: false
+      llm-engine:
+        condition: service_healthy
+        required: false
     expose:
       - "8080"
     networks:

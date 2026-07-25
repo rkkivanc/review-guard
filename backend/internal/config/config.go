@@ -33,6 +33,11 @@ type Config struct {
 	MLCLLMURL   string
 	MLCModelID  string
 	LLMTimeout  time.Duration
+
+	// FINAL BOSS control plane.
+	PEFTAdaptersDir string
+	AdminEmails     []string
+	DefaultSystemPrompt string
 }
 
 // DimensionWeights are the composite trust-score weights from PROJECT_CONTEXT §4.
@@ -66,10 +71,28 @@ func Load() Config {
 			Usefulness:   0.15,
 		},
 
-		MLCLLMURL:  strings.TrimSpace(os.Getenv("MLC_LLM_URL")),
+		// Local `go run` defaults to the host stub; Docker Compose overrides to http://llm:8000.
+		MLCLLMURL:  envOr("MLC_LLM_URL", "http://localhost:8000"),
 		MLCModelID: envOr("MLC_MODEL_ID", "gemma-2-2b-it-q4f16_1-MLC"),
 		LLMTimeout: envDuration("LLM_TIMEOUT", 60*time.Second),
+
+		PEFTAdaptersDir: envOr("PEFT_ADAPTERS_DIR", defaultAdaptersDir()),
+		AdminEmails:     splitCSV(envOr("ADMIN_EMAILS", "admin@reviewguard.local")),
+		DefaultSystemPrompt: envOr("LLM_SYSTEM_PROMPT", defaultSystemPrompt),
 	}
+}
+
+const defaultSystemPrompt = `You are ReviewGuard's local analyst. Be precise, structured, and prefer Markdown with tables when summarizing knowledge. Never invent credentials or external URLs.`
+
+// IsAdminEmail reports whether email should receive the admin role on register.
+func (c Config) IsAdminEmail(email string) bool {
+	email = strings.ToLower(strings.TrimSpace(email))
+	for _, a := range c.AdminEmails {
+		if strings.ToLower(strings.TrimSpace(a)) == email {
+			return true
+		}
+	}
+	return false
 }
 
 // UsingMemoryStore reports whether the process should use the in-memory repository.
@@ -108,6 +131,14 @@ func (c *Config) EnsureJWTSecret() (fromFile bool, err error) {
 		return false, fmt.Errorf("write jwt secret: %w", err)
 	}
 	return true, nil
+}
+
+func defaultAdaptersDir() string {
+	// Prefer repo-root peft-adapters when the process cwd is backend/.
+	if st, err := os.Stat("../peft-adapters"); err == nil && st.IsDir() {
+		return "../peft-adapters"
+	}
+	return "peft-adapters"
 }
 
 func envOr(key, fallback string) string {

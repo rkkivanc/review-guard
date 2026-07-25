@@ -122,6 +122,7 @@ func (m *MemoryStore) CreateUser(ctx context.Context, user domain.User) (domain.
 		return domain.User{}, domain.ErrConflict
 	}
 	user.Email = email
+	user.Role = domain.NormalizeRole(user.Role)
 	m.usersByID[user.ID] = user
 	m.usersByEmail[email] = user.ID
 	m.schedulePersist()
@@ -179,6 +180,9 @@ func (m *MemoryStore) UpdateUser(ctx context.Context, user domain.User) (domain.
 
 	existing.Email = newEmail
 	existing.Name = user.Name
+	if user.Role != "" {
+		existing.Role = domain.NormalizeRole(user.Role)
+	}
 	m.usersByID[user.ID] = existing
 	m.schedulePersist()
 	return existing, nil

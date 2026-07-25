@@ -30,6 +30,7 @@ type persistUser struct {
 	ID           string    `json:"id"`
 	Email        string    `json:"email"`
 	Name         string    `json:"name"`
+	Role         string    `json:"role"`
 	PasswordHash string    `json:"password_hash"`
 	TokenVersion int64     `json:"token_version"`
 	CreatedAt    time.Time `json:"created_at"`
@@ -74,6 +75,7 @@ func OpenMemoryStore(dataDir string) (*MemoryStore, error) {
 				ID:           u.ID,
 				Email:        u.Email,
 				Name:         u.Name,
+				Role:         domain.NormalizeRole(u.Role),
 				PasswordHash: u.PasswordHash,
 				TokenVersion: u.TokenVersion,
 				CreatedAt:    u.CreatedAt,
@@ -156,6 +158,7 @@ func (m *MemoryStore) snapshotUnderRLock() persistSnapshot {
 			ID:           u.ID,
 			Email:        u.Email,
 			Name:         u.Name,
+			Role:         domain.NormalizeRole(u.Role),
 			PasswordHash: u.PasswordHash,
 			TokenVersion: u.TokenVersion,
 			CreatedAt:    u.CreatedAt,

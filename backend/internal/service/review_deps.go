@@ -7,6 +7,7 @@ import (
 	"github.com/masterfabric/review-guard/mf-backend/internal/config"
 	"github.com/masterfabric/review-guard/mf-backend/internal/domain"
 	"github.com/masterfabric/review-guard/mf-backend/internal/llm"
+	"github.com/masterfabric/review-guard/mf-backend/internal/llmruntime"
 )
 
 const (
@@ -35,15 +36,16 @@ type ReviewRepository interface {
 
 // ReviewService persists reviews and always recomputes trust server-side.
 type ReviewService struct {
-	store ReviewRepository
-	cfg   config.Config
-	llm   *llm.Client
-	now   func() time.Time
+	store   ReviewRepository
+	cfg     config.Config
+	llm     *llm.Client
+	runtime *llmruntime.Store
+	now     func() time.Time
 }
 
 // NewReviewService constructs a ReviewService.
-func NewReviewService(store ReviewRepository, cfg config.Config, llmClient *llm.Client) *ReviewService {
-	return &ReviewService{store: store, cfg: cfg, llm: llmClient, now: time.Now}
+func NewReviewService(store ReviewRepository, cfg config.Config, llmClient *llm.Client, runtime *llmruntime.Store) *ReviewService {
+	return &ReviewService{store: store, cfg: cfg, llm: llmClient, runtime: runtime, now: time.Now}
 }
 
 // CreateReviewInput is the client payload for POST /reviews (no trust fields, no client runs).

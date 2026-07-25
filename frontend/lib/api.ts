@@ -13,6 +13,36 @@ export type User = {
   id: string;
   email: string;
   name: string;
+  role?: "user" | "admin" | string;
+  created_at: string;
+};
+
+export type AdapterMeta = {
+  id: string;
+  name: string;
+  path: string;
+  description?: string;
+  active: boolean;
+};
+
+export type LLMRuntimeConfig = {
+  system_prompt: string;
+  max_tokens: number;
+  temperature: number;
+  top_p: number;
+  active_adapter: string;
+};
+
+export type QueryLogEntry = {
+  id: string;
+  user_id: string;
+  tool: string;
+  query: string;
+  adapter_id?: string;
+  model_id?: string;
+  latency_ms: number;
+  ok: boolean;
+  error?: string;
   created_at: string;
 };
 
@@ -339,4 +369,46 @@ export type GameAverage = {
   raw_avg: number;
   weighted_avg: number;
   inflation: number;
+};
+
+export const adminApi = {
+  getLLMConfig(accessToken: string) {
+    return apiRequest<LLMRuntimeConfig>("/admin/llm-config", { accessToken });
+  },
+  patchLLMConfig(accessToken: string, body: Partial<LLMRuntimeConfig>) {
+    return apiRequest<LLMRuntimeConfig>("/admin/llm-config", {
+      method: "PATCH",
+      accessToken,
+      body,
+    });
+  },
+  listAdapters(accessToken: string) {
+    return apiRequest<{ adapters: AdapterMeta[] }>("/admin/adapters", { accessToken });
+  },
+  upsertAdapter(
+    accessToken: string,
+    body: { id: string; name: string; path?: string; description?: string },
+  ) {
+    return apiRequest<AdapterMeta>("/admin/adapters", {
+      method: "POST",
+      accessToken,
+      body,
+    });
+  },
+  removeAdapter(accessToken: string, id: string) {
+    return apiRequest<{ deleted: boolean }>(`/admin/adapters/${encodeURIComponent(id)}`, {
+      method: "DELETE",
+      accessToken,
+    });
+  },
+  activateAdapter(accessToken: string, adapter_id: string) {
+    return apiRequest<LLMRuntimeConfig>("/admin/adapters/activate", {
+      method: "POST",
+      accessToken,
+      body: { adapter_id },
+    });
+  },
+  listLogs(accessToken: string, limit = 50) {
+    return apiRequest<{ logs: QueryLogEntry[] }>(`/admin/logs?limit=${limit}`, { accessToken });
+  },
 };

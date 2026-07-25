@@ -81,7 +81,19 @@ type chatRequest struct {
 	Model       string        `json:"model"`
 	Messages    []chatMessage `json:"messages"`
 	Temperature float64       `json:"temperature"`
+	TopP        float64       `json:"top_p,omitempty"`
 	MaxTokens   int           `json:"max_tokens"`
+	AdapterID   string        `json:"adapter_id,omitempty"`
+}
+
+// CompleteOpts configures a single chat completion (MCP / DeepKwiki / admin hot-swap).
+type CompleteOpts struct {
+	SystemPrompt string
+	UserPrompt   string
+	Temperature  float64
+	TopP         float64
+	MaxTokens    int
+	AdapterID    string
 }
 
 type chatMessage struct {
@@ -99,10 +111,13 @@ type chatResponse struct {
 
 // ClassifyInput is the review payload sent to the model.
 type ClassifyInput struct {
-	GameName   string
-	Stars      int
-	ReviewText string
-	Hints      []domain.FeedbackHint
+	GameName     string
+	Stars        int
+	ReviewText   string
+	Hints        []domain.FeedbackHint
+	AdapterID    string
+	Temperature  float64 // 0 = client default
+	SystemPrompt string
 }
 
 // ClassifyResult is N runs plus wall-clock latency.
@@ -117,10 +132,20 @@ func (c *Client) ClassifyThreeTimes(ctx context.Context, in ClassifyInput) (Clas
 		return ClassifyResult{}, fmt.Errorf("%w: MLC_LLM_URL is not set", domain.ErrLLMUnavailable)
 	}
 	prompt := BuildClassifyPrompt(in.GameName, in.Stars, in.ReviewText, in.Hints)
+	temp := c.temp
+	if in.Temperature > 0 {
+		temp = in.Temperature
+	}
 	started := time.Now()
 	runs := make([]scoring.Run, 0, c.runs)
 	for i := 0; i < c.runs; i++ {
-		content, err := c.chatCompletion(ctx, prompt)
+		content, err := c.Complete(ctx, CompleteOpts{
+			SystemPrompt: in.SystemPrompt,
+			UserPrompt:   prompt,
+			Temperature:  temp,
+			MaxTokens:    512,
+			AdapterID:    in.AdapterID,
+		})
 		if err != nil {
 			return ClassifyResult{}, err
 		}
@@ -136,45 +161,119 @@ func (c *Client) ClassifyThreeTimes(ctx context.Context, in ClassifyInput) (Clas
 	}, nil
 }
 
-func (c *Client) chatCompletion(ctx context.Context, prompt string) (string, error) {
+// Complete sends a single chat completion with optional system prompt / PEFT adapter.
+func (c *Client) Complete(ctx context.Context, opts CompleteOpts) (string, error) {
+	if !c.Enabled() {
+		return "", fmt.Errorf("%w: MLC_LLM_URL is not set", domain.ErrLLMUnavailable)
+	}
+	if strings.TrimSpace(opts.UserPrompt) == "" {
+		return "", fmt.Errorf("%w: empty prompt", domain.ErrValidation)
+	}
+	temp := opts.Temperature
+	if temp <= 0 {
+		temp = c.temp
+	}
+	maxTok := opts.MaxTokens
+	if maxTok <= 0 {
+		maxTok = 1024
+	}
+	msgs := make([]chatMessage, 0, 2)
+	if sp := strings.TrimSpace(opts.SystemPrompt); sp != "" {
+		msgs = append(msgs, chatMessage{Role: "system", Content: sp})
+	}
+	msgs = append(msgs, chatMessage{Role: "user", Content: opts.UserPrompt})
 	body, err := json.Marshal(chatRequest{
-		Model: c.modelID,
-		Messages: []chatMessage{
-			{Role: "user", Content: prompt},
-		},
-		Temperature: c.temp,
-		MaxTokens:   512,
+		Model:       c.modelID,
+		Messages:    msgs,
+		Temperature: temp,
+		TopP:        opts.TopP,
+		MaxTokens:   maxTok,
+		AdapterID:   opts.AdapterID,
 	})
 	if err != nil {
 		return "", err
 	}
+	return c.chatCompletionBody(ctx, body)
+}
+
+const chatMaxAttempts = 4
+
+func (c *Client) chatCompletionBody(ctx context.Context, body []byte) (string, error) {
+	var lastErr error
+	for attempt := 1; attempt <= chatMaxAttempts; attempt++ {
+		content, retryable, err := c.doChatCompletion(ctx, body)
+		if err == nil {
+			return content, nil
+		}
+		lastErr = err
+		if !retryable || attempt == chatMaxAttempts {
+			break
+		}
+		// Render free-tier cold starts often return HTML 502 while the LLM wakes.
+		backoff := time.Duration(attempt*3) * time.Second
+		select {
+		case <-ctx.Done():
+			return "", fmt.Errorf("%w: %v", domain.ErrLLMUnavailable, ctx.Err())
+		case <-time.After(backoff):
+		}
+	}
+	return "", lastErr
+}
+
+// ActivateRemoteAdapter notifies the LLM engine of a PEFT hot-swap (best-effort).
+func (c *Client) ActivateRemoteAdapter(ctx context.Context, adapterID string) error {
+	if !c.Enabled() {
+		return nil
+	}
+	payload, _ := json.Marshal(map[string]any{"adapter_id": adapterID})
+	req, err := http.NewRequestWithContext(ctx, http.MethodPost, c.baseURL+"/v1/adapters/activate", bytes.NewReader(payload))
+	if err != nil {
+		return err
+	}
+	req.Header.Set("Content-Type", "application/json")
+	res, err := c.httpClient.Do(req)
+	if err != nil {
+		return err
+	}
+	defer res.Body.Close()
+	_, _ = io.Copy(io.Discard, io.LimitReader(res.Body, 1<<16))
+	if res.StatusCode >= 300 {
+		return fmt.Errorf("activate adapter: status %d", res.StatusCode)
+	}
+	return nil
+}
+
+func (c *Client) doChatCompletion(ctx context.Context, body []byte) (content string, retryable bool, err error) {
 	req, err := http.NewRequestWithContext(ctx, http.MethodPost, c.baseURL+"/v1/chat/completions", bytes.NewReader(body))
 	if err != nil {
-		return "", err
+		return "", false, err
 	}
 	req.Header.Set("Content-Type", "application/json")
 	req.Header.Set("Accept", "application/json")
 
 	res, err := c.httpClient.Do(req)
 	if err != nil {
-		return "", fmt.Errorf("%w: %v", domain.ErrLLMUnavailable, err)
+		return "", true, fmt.Errorf("%w: %v", domain.ErrLLMUnavailable, err)
 	}
 	defer res.Body.Close()
 	raw, err := io.ReadAll(io.LimitReader(res.Body, 1<<20))
 	if err != nil {
-		return "", fmt.Errorf("%w: read body: %v", domain.ErrLLMUnavailable, err)
+		return "", true, fmt.Errorf("%w: read body: %v", domain.ErrLLMUnavailable, err)
 	}
 	if res.StatusCode < 200 || res.StatusCode >= 300 {
-		return "", fmt.Errorf("%w: status %d: %s", domain.ErrLLMUnavailable, res.StatusCode, truncate(string(raw), 200))
+		retryable = res.StatusCode == http.StatusBadGateway ||
+			res.StatusCode == http.StatusServiceUnavailable ||
+			res.StatusCode == http.StatusGatewayTimeout
+		return "", retryable, fmt.Errorf("%w: status %d: %s", domain.ErrLLMUnavailable, res.StatusCode, truncate(string(raw), 200))
 	}
 	var parsed chatResponse
 	if err := json.Unmarshal(raw, &parsed); err != nil {
-		return "", fmt.Errorf("%w: decode response: %v", domain.ErrLLMUnavailable, err)
+		return "", false, fmt.Errorf("%w: decode response: %v", domain.ErrLLMUnavailable, err)
 	}
 	if len(parsed.Choices) == 0 {
-		return "", fmt.Errorf("%w: empty choices", domain.ErrLLMUnavailable)
+		return "", false, fmt.Errorf("%w: empty choices", domain.ErrLLMUnavailable)
 	}
-	return parsed.Choices[0].Message.Content, nil
+	return parsed.Choices[0].Message.Content, false, nil
 }
 
 func truncate(s string, n int) string {

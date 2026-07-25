@@ -70,31 +70,36 @@ func isUniqueViolation(err error) bool {
 
 func (p *PostgresStore) GetUserByEmail(ctx context.Context, email string) (domain.User, error) {
 	return p.scanUser(ctx, `
-		SELECT id, email, name, password_hash, token_version, created_at
+		SELECT id, email, name, COALESCE(role, 'user'), password_hash, token_version, created_at
 		FROM users WHERE email=$1`, strings.ToLower(strings.TrimSpace(email)))
 }
 
 func (p *PostgresStore) GetUserByID(ctx context.Context, id string) (domain.User, error) {
 	return p.scanUser(ctx, `
-		SELECT id, email, name, password_hash, token_version, created_at
+		SELECT id, email, name, COALESCE(role, 'user'), password_hash, token_version, created_at
 		FROM users WHERE id=$1`, id)
 }
 
 func (p *PostgresStore) scanUser(ctx context.Context, q string, arg any) (domain.User, error) {
 	var u domain.User
-	err := p.pool.QueryRow(ctx, q, arg).Scan(&u.ID, &u.Email, &u.Name, &u.PasswordHash, &u.TokenVersion, &u.CreatedAt)
+	err := p.pool.QueryRow(ctx, q, arg).Scan(&u.ID, &u.Email, &u.Name, &u.Role, &u.PasswordHash, &u.TokenVersion, &u.CreatedAt)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return domain.User{}, domain.ErrNotFound
 	}
-	return u, err
+	if err != nil {
+		return domain.User{}, err
+	}
+	u.Role = domain.NormalizeRole(u.Role)
+	return u, nil
 }
 
 func (p *PostgresStore) CreateUser(ctx context.Context, user domain.User) (domain.User, error) {
 	user.Email = strings.ToLower(strings.TrimSpace(user.Email))
+	user.Role = domain.NormalizeRole(user.Role)
 	_, err := p.pool.Exec(ctx, `
-		INSERT INTO users (id, email, name, password_hash, token_version, created_at)
-		VALUES ($1, $2, $3, $4, $5, $6)`,
-		user.ID, user.Email, user.Name, user.PasswordHash, user.TokenVersion, user.CreatedAt)
+		INSERT INTO users (id, email, name, role, password_hash, token_version, created_at)
+		VALUES ($1, $2, $3, $4, $5, $6, $7)`,
+		user.ID, user.Email, user.Name, user.Role, user.PasswordHash, user.TokenVersion, user.CreatedAt)
 	if err != nil {
 		if isUniqueViolation(err) {
 			return domain.User{}, domain.ErrConflict
@@ -106,9 +111,10 @@ func (p *PostgresStore) CreateUser(ctx context.Context, user domain.User) (domai
 
 func (p *PostgresStore) UpdateUser(ctx context.Context, user domain.User) (domain.User, error) {
 	user.Email = strings.ToLower(strings.TrimSpace(user.Email))
+	user.Role = domain.NormalizeRole(user.Role)
 	tag, err := p.pool.Exec(ctx, `
-		UPDATE users SET email=$2, name=$3 WHERE id=$1`,
-		user.ID, user.Email, user.Name)
+		UPDATE users SET email=$2, name=$3, role=$4 WHERE id=$1`,
+		user.ID, user.Email, user.Name, user.Role)
 	if err != nil {
 		if isUniqueViolation(err) {
 			return domain.User{}, domain.ErrConflict

@@ -55,7 +55,10 @@ export function AuthView() {
   return (
     <div>
       <h1>Sign in</h1>
-      <p className="muted">Create an account or sign in to open the Simulator and Dashboard.</p>
+      <p className="muted">
+        Create an account or sign in to open Simulator, Dashboard, and DeepKwiki. Register with{" "}
+        <code>admin@reviewguard.local</code> for the Admin LLM panel.
+      </p>
 
       <div className="subnav" role="tablist" aria-label="Auth subviews">
         <button

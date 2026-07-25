@@ -1,0 +1,16 @@
+{
+  "adapters": [
+    {
+      "id": "deepkwiki-lora",
+      "name": "DeepKwiki knowledge",
+      "path": "deepkwiki-lora",
+      "description": "Bias toward knowledge-bank style answers"
+    },
+    {
+      "id": "strict-review",
+      "name": "Strict review analyst",
+      "path": "strict-review",
+      "description": "Stricter authenticity / bot detection"
+    }
+  ]
+}

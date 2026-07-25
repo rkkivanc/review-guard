@@ -11,6 +11,7 @@ import (
 
 	"github.com/masterfabric/review-guard/mf-backend/internal/auth"
 	"github.com/masterfabric/review-guard/mf-backend/internal/config"
+	"github.com/masterfabric/review-guard/mf-backend/internal/mcp"
 	"github.com/masterfabric/review-guard/mf-backend/internal/metrics"
 	"github.com/masterfabric/review-guard/mf-backend/internal/service"
 )
@@ -23,9 +24,11 @@ type Dependencies struct {
 	CfgSvc    *service.ConfigService
 	AuthSvc   *service.AuthService
 	ReviewSvc *service.ReviewService
+	AdminSvc  *service.AdminService
+	MCP       *mcp.Handler
 }
 
-// NewRouter builds the chi router (config + common + auth + reviews).
+// NewRouter builds the chi router (config + common + auth + reviews + mcp + admin).
 func NewRouter(deps Dependencies) http.Handler {
 	r := chi.NewRouter()
 
@@ -50,6 +53,7 @@ func NewRouter(deps Dependencies) http.Handler {
 	cfg := NewConfigHandler(deps.CfgSvc)
 	authH := NewAuthHandler(deps.AuthSvc)
 	reviewH := NewReviewHandler(deps.ReviewSvc)
+	adminH := NewAdminHandler(deps.AdminSvc)
 
 	r.Get("/config", cfg.Config)
 	r.Get("/version", cfg.Version)
@@ -65,6 +69,10 @@ func NewRouter(deps Dependencies) http.Handler {
 		ar.Post("/auth/refresh", authH.Refresh)
 		ar.Post("/auth/logout", authH.Logout)
 	})
+
+	if deps.MCP != nil {
+		r.Post("/mcp", deps.MCP.ServeHTTP)
+	}
 
 	r.Group(func(pr chi.Router) {
 		pr.Use(RequireAuth(deps.Tokens, deps.AuthSvc))
@@ -85,6 +93,19 @@ func NewRouter(deps Dependencies) http.Handler {
 		pr.Post("/reviews/{id}/rescore", reviewH.Rescore)
 		pr.Get("/reviews/{id}/score", reviewH.Score)
 		pr.Post("/reviews/{id}/feedback", reviewH.Feedback)
+
+		if deps.AdminSvc != nil {
+			pr.Group(func(ar chi.Router) {
+				ar.Use(RequireAdmin(deps.AuthSvc))
+				ar.Get("/admin/llm-config", adminH.GetLLMConfig)
+				ar.Patch("/admin/llm-config", adminH.PatchLLMConfig)
+				ar.Get("/admin/adapters", adminH.ListAdapters)
+				ar.Post("/admin/adapters", adminH.UpsertAdapter)
+				ar.Delete("/admin/adapters/{id}", adminH.DeleteAdapter)
+				ar.Post("/admin/adapters/activate", adminH.ActivateAdapter)
+				ar.Get("/admin/logs", adminH.ListLogs)
+			})
+		}
 	})
 
 	r.NotFound(func(w http.ResponseWriter, r *http.Request) {
@@ -100,17 +121,16 @@ func NewRouter(deps Dependencies) http.Handler {
 // JSONRequestLogger emits structured request logs for Grafana/Loki.
 func JSONRequestLogger(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		start := time.Now()
 		ww := middleware.NewWrapResponseWriter(w, r.ProtoMajor)
+		start := time.Now()
 		next.ServeHTTP(ww, r)
-		slog.Info("http_request",
+		slog.Info("request",
 			"method", r.Method,
 			"path", r.URL.Path,
 			"status", ww.Status(),
 			"bytes", ww.BytesWritten(),
 			"duration_ms", time.Since(start).Milliseconds(),
 			"request_id", middleware.GetReqID(r.Context()),
-			"remote", r.RemoteAddr,
 		)
 	})
 }

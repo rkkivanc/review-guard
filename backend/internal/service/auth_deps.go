@@ -37,16 +37,21 @@ type AuthStore interface {
 
 // AuthService implements registration, login, session rotation, and profile updates.
 type AuthService struct {
-	store  AuthStore
-	tokens *auth.TokenManager
-	now    func() time.Time
+	store        AuthStore
+	tokens       *auth.TokenManager
+	isAdminEmail func(string) bool
+	now          func() time.Time
 }
 
 // NewAuthService wires the auth use cases.
-func NewAuthService(store AuthStore, tokens *auth.TokenManager) *AuthService {
+func NewAuthService(store AuthStore, tokens *auth.TokenManager, isAdminEmail func(string) bool) *AuthService {
+	if isAdminEmail == nil {
+		isAdminEmail = func(string) bool { return false }
+	}
 	return &AuthService{
-		store:  store,
-		tokens: tokens,
-		now:    time.Now,
+		store:        store,
+		tokens:       tokens,
+		isAdminEmail: isAdminEmail,
+		now:          time.Now,
 	}
 }

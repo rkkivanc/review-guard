@@ -43,3 +43,22 @@ func RequireAuth(tm *auth.TokenManager, authSvc *service.AuthService) func(http.
 		})
 	}
 }
+
+// RequireAdmin ensures the authenticated user has the admin role.
+func RequireAdmin(authSvc *service.AuthService) func(http.Handler) http.Handler {
+	return func(next http.Handler) http.Handler {
+		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			userID, ok := UserIDFromContext(r.Context())
+			if !ok {
+				WriteErr(w, http.StatusUnauthorized, "unauthorized", "missing authenticated user")
+				return
+			}
+			isAdmin, err := authSvc.IsAdmin(r.Context(), userID)
+			if err != nil || !isAdmin {
+				WriteErr(w, http.StatusForbidden, "forbidden", "admin role required")
+				return
+			}
+			next.ServeHTTP(w, r)
+		})
+	}
+}

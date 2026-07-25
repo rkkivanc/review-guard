@@ -2,14 +2,30 @@ package domain
 
 import "time"
 
+const (
+	RoleUser  = "user"
+	RoleAdmin = "admin"
+)
+
 // User is the authenticated account (never includes password hash in API responses).
 type User struct {
 	ID           string    `json:"id"`
 	Email        string    `json:"email"`
 	Name         string    `json:"name"`
+	Role         string    `json:"role"`
 	PasswordHash string    `json:"-"`
 	TokenVersion int64     `json:"-"` // bumped to invalidate access JWTs
 	CreatedAt    time.Time `json:"created_at"`
+}
+
+// NormalizeRole returns a valid role (defaults to user).
+func NormalizeRole(role string) string {
+	switch role {
+	case RoleAdmin:
+		return RoleAdmin
+	default:
+		return RoleUser
+	}
 }
 
 // RefreshToken is a server-side session row. Raw token is never stored — only TokenHash.

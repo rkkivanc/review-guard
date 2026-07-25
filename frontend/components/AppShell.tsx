@@ -1,11 +1,12 @@
 "use client";
 
-export type MasterView = "auth" | "simulator" | "dashboard";
+export type MasterView = "auth" | "simulator" | "dashboard" | "deepkwiki" | "admin";
 
 type AppShellProps = {
   view: MasterView;
   onViewChange: (view: MasterView) => void;
   authenticated: boolean;
+  isAdmin?: boolean;
   userLabel?: string | null;
   onSignOut?: () => void;
   children: React.ReactNode;
@@ -15,6 +16,7 @@ export function AppShell({
   view,
   onViewChange,
   authenticated,
+  isAdmin,
   userLabel,
   onSignOut,
   children,
@@ -42,6 +44,22 @@ export function AppShell({
             >
               Dashboard
             </button>
+            <button
+              type="button"
+              className={`nav-btn${view === "deepkwiki" ? " active" : ""}`}
+              onClick={() => onViewChange("deepkwiki")}
+            >
+              DeepKwiki
+            </button>
+            {isAdmin ? (
+              <button
+                type="button"
+                className={`nav-btn${view === "admin" ? " active" : ""}`}
+                onClick={() => onViewChange("admin")}
+              >
+                Admin
+              </button>
+            ) : null}
           </nav>
         ) : (
           <nav className="nav" aria-label="Master views">

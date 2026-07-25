@@ -26,12 +26,19 @@ func (s *ReviewService) Create(ctx context.Context, userID string, in CreateRevi
 		hints = hintRows
 	}
 
+	rt := domain.LLMRuntimeConfig{}
+	if s.runtime != nil {
+		rt = s.runtime.Get()
+	}
 	started := time.Now()
 	classified, err := s.llm.ClassifyThreeTimes(ctx, llm.ClassifyInput{
-		GameName:   strings.TrimSpace(in.GameName),
-		Stars:      in.Stars,
-		ReviewText: strings.TrimSpace(in.ReviewText),
-		Hints:      hints,
+		GameName:     strings.TrimSpace(in.GameName),
+		Stars:        in.Stars,
+		ReviewText:   strings.TrimSpace(in.ReviewText),
+		Hints:        hints,
+		AdapterID:    rt.ActiveAdapter,
+		Temperature:  rt.Temperature,
+		SystemPrompt: rt.SystemPrompt,
 	})
 	metrics.ClassifyDuration.Observe(time.Since(started).Seconds())
 	if err != nil {
